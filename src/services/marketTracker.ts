@@ -2121,9 +2121,69 @@ class MarketTracker {
                 ? market.marketName.substring(0, 62) + '...'
                 : market.marketName;
 
-            // Calculate time left
+            // Calculate time left - ALWAYS recalculate for 15-min markets from slug
             let timeLeftStr = '';
-            if (market.endDate && market.endDate > 0) {
+            const is15Min = market.marketKey.includes('-15');
+            
+            if (is15Min) {
+                // For 15-min markets: ALWAYS calculate from slug (most reliable)
+                let calculatedEndDate: number | null = null;
+                
+                try {
+                    if (market.marketSlug) {
+                        // Try slug pattern matching
+                        const tsMatch1 = market.marketSlug.match(/updown-15m-(\d+)/i);
+                        const tsMatch2 = !tsMatch1 ? market.marketSlug.match(/15m-(\d+)/i) : null;
+                        const tsMatch = tsMatch1 || tsMatch2;
+                        
+                        if (tsMatch && tsMatch[1]) {
+                            const startTime = parseInt(tsMatch[1], 10) * 1000;
+                            if (!isNaN(startTime) && startTime > 0) {
+                                calculatedEndDate = startTime + (15 * 60 * 1000);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Silently handle regex errors
+                }
+                
+                // If slug parsing failed, calculate from current 15-min window
+                if (!calculatedEndDate) {
+                    const current15MinStart = Math.floor(now / (15 * 60 * 1000)) * (15 * 60 * 1000);
+                    calculatedEndDate = current15MinStart + (15 * 60 * 1000);
+                }
+                
+                // Safety check: 15-min markets should never show more than 16 minutes
+                if (calculatedEndDate) {
+                    market.endDate = calculatedEndDate;
+                    const timeLeftMs = calculatedEndDate - now;
+                    
+                    // If time is invalid, recalculate from current window
+                    if (timeLeftMs > 16 * 60 * 1000 || timeLeftMs < -60 * 1000) {
+                        const current15MinStart = Math.floor(now / (15 * 60 * 1000)) * (15 * 60 * 1000);
+                        const correctEndDate = current15MinStart + (15 * 60 * 1000);
+                        market.endDate = correctEndDate;
+                        const correctedTimeLeft = correctEndDate - now;
+                        
+                        if (correctedTimeLeft > 0 && correctedTimeLeft <= 15 * 60 * 1000) {
+                            const mins = Math.floor(correctedTimeLeft / 60000);
+                            const secs = Math.floor((correctedTimeLeft % 60000) / 1000);
+                            timeLeftStr = `⏱️ ${mins}m ${secs}s left`;
+                        } else {
+                            timeLeftStr = '⌛ Expired';
+                        }
+                    } else if (timeLeftMs > 0) {
+                        const mins = Math.floor(timeLeftMs / 60000);
+                        const secs = Math.floor((timeLeftMs % 60000) / 1000);
+                        timeLeftStr = `⏱️ ${mins}m ${secs}s left`;
+                    } else {
+                        timeLeftStr = '⌛ Expired';
+                    }
+                } else {
+                    timeLeftStr = '⏱️ Calculating...';
+                }
+            } else if (market.endDate && market.endDate > 0) {
+                // For hourly markets: use endDate
                 const endDateMs = market.endDate < 10000000000 ? market.endDate * 1000 : market.endDate;
                 const timeLeftMs = endDateMs - now;
                 if (timeLeftMs > 0) {
@@ -2674,6 +2734,8 @@ class MarketTracker {
                     this.discoveredSlugs.add(slug);
                     return null;
                 }
+                // If timestamps don't match, we need to replace the old market
+                // Don't return null - continue to fetch and replace
             }
 
             try {
@@ -2799,15 +2861,44 @@ class MarketTracker {
             // For 15-min markets, remove old window before adding new
             if (is15Min) {
                 const existingMarket = this.markets.get(marketKey);
-                if (existingMarket && existingMarket.marketSlug !== slug) {
-                    // Old window - remove it
-                    this.markets.delete(marketKey);
+                if (existingMarket) {
+                    // Check if this is a different time window (different slug)
+                    if (existingMarket.marketSlug !== slug) {
+                        // Old window - remove it
+                        this.markets.delete(marketKey);
+                    } else {
+                        // Same slug - update endDate to ensure it's correct
+                        // Recalculate endDate from slug to fix any timing issues
+                        const tsMatch = slug.match(/updown-15m-(\d+)/);
+                        if (tsMatch) {
+                            const startTime = parseInt(tsMatch[1], 10) * 1000;
+                            const correctEndDate = startTime + (15 * 60 * 1000);
+                            // Validate: 15-min markets should never have more than 15 minutes left
+                            const timeLeft = correctEndDate - now;
+                            if (timeLeft > 16 * 60 * 1000) {
+                                // EndDate is wrong - fix it
+                                existingMarket.endDate = correctEndDate;
+                            } else {
+                                existingMarket.endDate = correctEndDate;
+                            }
+                        }
+                    }
                 }
             }
 
             // Add new market (or update if exists)
             const existingMarket = this.markets.get(marketKey);
             if (!existingMarket || existingMarket.marketSlug !== slug) {
+                // For 15-min markets, ensure endDate is calculated correctly from slug
+                let finalEndDate = endDate;
+                if (is15Min && slug) {
+                    const tsMatch = slug.match(/updown-15m-(\d+)/);
+                    if (tsMatch) {
+                        const startTime = parseInt(tsMatch[1], 10) * 1000;
+                        finalEndDate = startTime + (15 * 60 * 1000); // Always 15 minutes from start
+                    }
+                }
+                
                 const newMarket: MarketStats = {
                     marketKey,
                     marketName,
@@ -2821,7 +2912,7 @@ class MarketTracker {
                     tradesUp: existingMarket?.tradesUp || 0,
                     tradesDown: existingMarket?.tradesDown || 0,
                     lastUpdate: now,
-                    endDate,
+                    endDate: finalEndDate,
                     conditionId,
                     assetUp,
                     assetDown,
