@@ -261,52 +261,52 @@ export class PolymarketBot {
       marketTracker.setDisplayMode('PAPER');
       logger.info("Paper mode: Dashboard will display live market data and paper trades");
 
-      // Set up market close callback to log profits when markets close
+      // Set up market close callback to settle positions and return capital
       marketTracker.setMarketCloseCallback(async (closedMarket) => {
-        logger.info(`Market closed: ${closedMarket.marketName} - logging profits...`);
+        logger.info(`Market closed: ${closedMarket.marketName}`);
 
-        // Log profits for all positions in this market
-        for (const position of this.paperTrader.getAllPositions()) {
-          // Check if position is in this market (by condition ID)
-          if (position.conditionId === closedMarket.conditionId) {
-            // Get final price (use 1.0 for winner, 0.0 for loser based on outcome)
-            // For now, use current position price as final
-            const finalPrice = position.currentPrice || position.avgPrice;
-            this.paperTrader.logProfit(
-              closedMarket.marketName || position.title || "Unknown",
-              position.outcome || "Unknown",
-              position.size,
-              position.avgPrice,
-              finalPrice
-            );
-          }
-        }
+        // Settle the market - return position value to balance
+        // Use closing prices if available, otherwise use final prices (1.0/0.0 for winner)
+        const finalPriceUp = closedMarket.closingPriceUp ?? closedMarket.currentPriceUp ?? 0.5;
+        const finalPriceDown = closedMarket.closingPriceDown ?? closedMarket.currentPriceDown ?? 0.5;
+
+        this.paperTrader.settleMarket(
+          closedMarket.conditionId || "",
+          finalPriceUp,
+          finalPriceDown
+        );
       });
 
-      // Set up pre-close callback to log profits 5 seconds before market ends
+      // Set up pre-close callback to log PNL 5 seconds before market ends
+      // This captures the exact PnL shown on the dashboard
       marketTracker.setPreCloseCallback(async (market) => {
-        logger.info(`📊 Market ending in 5s: ${market.marketName} - capturing final PnL...`);
+        // Calculate PnL exactly like the dashboard does
+        const finalPriceUp = market.currentPriceUp ?? 0.5;
+        const finalPriceDown = market.currentPriceDown ?? 0.5;
 
-        // Log profits for all positions in this market
-        for (const position of this.paperTrader.getAllPositions()) {
-          // Check if position is in this market (by condition ID)
-          if (position.conditionId === market.conditionId) {
-            // Use current price from market or position
-            const finalPrice = market.currentPriceUp !== undefined && position.outcome?.toLowerCase() === 'up'
-              ? market.currentPriceUp
-              : market.currentPriceDown !== undefined && position.outcome?.toLowerCase() === 'down'
-                ? market.currentPriceDown
-                : position.currentPrice || position.avgPrice;
+        const finalValueUp = market.sharesUp * finalPriceUp;
+        const finalValueDown = market.sharesDown * finalPriceDown;
 
-            this.paperTrader.logProfit(
-              market.marketName || position.title || "Unknown",
-              position.outcome || "Unknown",
-              position.size,
-              position.avgPrice,
-              finalPrice
-            );
-          }
-        }
+        const pnlUp = market.sharesUp > 0 ? finalValueUp - market.totalCostUp : 0;
+        const pnlDown = market.sharesDown > 0 ? finalValueDown - market.totalCostDown : 0;
+        const totalPnl = pnlUp + pnlDown;
+
+        const totalCost = market.totalCostUp + market.totalCostDown;
+        const pnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+        logger.info(`📊 Market ending in 5s: ${market.marketName} - PnL: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}%)`);
+
+        // Log to PROFITS CSV using marketTracker data (matches dashboard exactly)
+        this.paperTrader.logMarketPnLFromDashboard(
+          market.marketName || "Unknown",
+          market.conditionId || "",
+          totalPnl,
+          pnlPercent,
+          market.sharesUp,
+          market.sharesDown,
+          finalPriceUp,
+          finalPriceDown
+        );
       });
     }
 

@@ -79,8 +79,8 @@ export class PaperTrader {
 
   private initializeProfitCsv(): void {
     try {
-      // Simple headers: Time, Market, PnL
-      const headers = ["Time", "Market", "PnL"].join(",");
+      // Simple headers: Market Name, Time, PnL (easy to read format)
+      const headers = ["Market Name", "Time", "PnL"].join(",");
       fs.writeFileSync(this.profitCsvPath, headers + "\n", "utf8");
       this.profitCsvInitialized = true;
       logger.info(`Profit summary CSV initialized: ${this.profitCsvPath}`);
@@ -89,9 +89,189 @@ export class PaperTrader {
     }
   }
 
+  private loggedMarkets: Set<string> = new Set(); // Track markets already logged to prevent duplicates
+
+  /**
+   * Log total PNL for a market when it completes
+   * This logs a single row per market with total PNL across all positions
+   * Uses full market name and prevents duplicate logging
+   */
+  logMarketCompletionPnL(marketName: string, conditionId: string, finalPriceUp?: number, finalPriceDown?: number): void {
+    if (!this.profitCsvInitialized) return;
+
+    // Prevent duplicate logging for the same market
+    if (this.loggedMarkets.has(conditionId)) {
+      return;
+    }
+
+    try {
+      // Find all positions in this market
+      const marketPositions = this.getAllPositions().filter(
+        p => p.conditionId === conditionId
+      );
+
+      if (marketPositions.length === 0) {
+        return; // No positions in this market
+      }
+
+      // Calculate total PNL for all positions in this market
+      let totalPnl = 0;
+      for (const position of marketPositions) {
+        // Determine final price based on outcome
+        let finalPrice = 0;
+        if (position.outcome?.toLowerCase() === 'up' && finalPriceUp !== undefined) {
+          finalPrice = finalPriceUp;
+        } else if (position.outcome?.toLowerCase() === 'down' && finalPriceDown !== undefined) {
+          finalPrice = finalPriceDown;
+        } else {
+          // Fallback to current price or avg price
+          finalPrice = position.currentPrice || position.avgPrice;
+        }
+
+        const invested = position.size * position.avgPrice;
+        const finalValue = position.size * finalPrice;
+        const profitLoss = finalValue - invested;
+        totalPnl += profitLoss;
+      }
+
+      const now = new Date();
+      const time = now.toLocaleTimeString("en-US", { 
+        hour12: true, 
+        hour: "2-digit", 
+        minute: "2-digit",
+        second: "2-digit"
+      });
+
+      // Use full market name (no shortening)
+      const fullMarketName = marketName.trim();
+
+      // Simple row: Market Name, Time, PnL (easy to read)
+      const row = [
+        `"${fullMarketName}"`,
+        time,
+        `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`,
+      ].join(",");
+
+      fs.appendFileSync(this.profitCsvPath, row + "\n", "utf8");
+      
+      // Mark this market as logged to prevent duplicates
+      this.loggedMarkets.add(conditionId);
+      
+      logger.info(`📊 Market completion logged: ${fullMarketName} - PnL: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`);
+    } catch (error) {
+      logger.error(`Failed to write market completion PNL to CSV: ${error}`);
+    }
+  }
+
+  /**
+   * Log market PnL from dashboard data (captures exactly what dashboard shows)
+   * Called 5 seconds before market ends
+   */
+  logMarketPnLFromDashboard(
+    marketName: string,
+    conditionId: string,
+    totalPnl: number,
+    pnlPercent: number,
+    sharesUp: number,
+    sharesDown: number,
+    priceUp: number,
+    priceDown: number
+  ): void {
+    if (!this.profitCsvInitialized) return;
+
+    // Prevent duplicate logging for the same market
+    if (this.loggedMarkets.has(conditionId)) {
+      return;
+    }
+
+    // Skip if no shares traded in this market
+    if (sharesUp === 0 && sharesDown === 0) {
+      return;
+    }
+
+    try {
+      const now = new Date();
+      const time = now.toLocaleTimeString("en-US", {
+        hour12: true,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+
+      // Simple row: Market Name, Time, PnL (matches what dashboard shows)
+      const row = [
+        `"${marketName.trim()}"`,
+        time,
+        `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`,
+      ].join(",");
+
+      fs.appendFileSync(this.profitCsvPath, row + "\n", "utf8");
+
+      // Mark this market as logged to prevent duplicates
+      this.loggedMarkets.add(conditionId);
+
+      logger.paper(`📊 Dashboard PnL captured: ${marketName} - ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}%)`);
+    } catch (error) {
+      logger.error(`Failed to write dashboard PNL to CSV: ${error}`);
+    }
+  }
+
+  /**
+   * Settle a market - return position value to balance and remove positions
+   * This should be called when a market closes to free up capital
+   *
+   * @param conditionId - The market condition ID to settle
+   * @param finalPriceUp - Final price for UP outcome (1.0 if UP won, 0.0 if DOWN won, or mid if not resolved)
+   * @param finalPriceDown - Final price for DOWN outcome
+   */
+  settleMarket(conditionId: string, finalPriceUp: number, finalPriceDown: number): void {
+    const positionsToSettle: Position[] = [];
+
+    // Find all positions in this market
+    for (const [tokenId, position] of this.account.positions.entries()) {
+      if (position.conditionId === conditionId) {
+        positionsToSettle.push(position);
+      }
+    }
+
+    if (positionsToSettle.length === 0) {
+      return; // No positions to settle
+    }
+
+    let totalPayout = 0;
+
+    for (const position of positionsToSettle) {
+      // Determine payout based on outcome
+      let finalPrice: number;
+      if (position.outcome?.toLowerCase() === 'up') {
+        finalPrice = finalPriceUp;
+      } else if (position.outcome?.toLowerCase() === 'down') {
+        finalPrice = finalPriceDown;
+      } else {
+        // Fallback - shouldn't happen
+        finalPrice = position.avgPrice;
+      }
+
+      // Calculate payout: shares * final price
+      const payout = position.size * finalPrice;
+      totalPayout += payout;
+
+      // Remove position from map
+      this.account.positions.delete(position.tokenId);
+
+      logger.paper(`Settled ${position.outcome} position: ${position.size.toFixed(2)} shares @ $${finalPrice.toFixed(4)} = $${payout.toFixed(2)} payout`);
+    }
+
+    // Add payout to balance
+    this.account.balance += totalPayout;
+
+    logger.paper(`Market settled: ${positionsToSettle.length} positions, total payout: $${totalPayout.toFixed(2)}, new balance: $${this.account.balance.toFixed(2)}`);
+  }
+
   /**
    * Log a realized profit/loss to the PROFITS CSV
    * Called when a position is closed or market ends
+   * @deprecated Use logMarketCompletionPnL for market completion logging
    */
   logProfit(
     marketName: string,
