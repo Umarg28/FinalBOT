@@ -870,8 +870,15 @@ export class MarketTracker {
             }
         }
 
-        // Remove older markets
+        // Remove older markets (but first call the close callback to log PnL)
         for (const key of marketsToRemove) {
+            const marketToRemove = this.markets.get(key);
+            if (marketToRemove && this.onMarketCloseCallback) {
+                // Call the close callback before removing to ensure PnL is logged
+                this.onMarketCloseCallback(marketToRemove).catch(error => {
+                    console.error(`Error in close callback for removed market ${key}:`, error);
+                });
+            }
             this.markets.delete(key);
         }
     }
@@ -944,8 +951,15 @@ export class MarketTracker {
             }
         }
 
-        // Remove the previous time window markets
+        // Remove the previous time window markets (but first call the close callback to log PnL)
         for (const key of marketsToRemove) {
+            const marketToRemove = this.markets.get(key);
+            if (marketToRemove && this.onMarketCloseCallback) {
+                // Call the close callback before removing to ensure PnL is logged
+                this.onMarketCloseCallback(marketToRemove).catch(error => {
+                    console.error(`Error in close callback for removed market ${key}:`, error);
+                });
+            }
             this.markets.delete(key);
         }
     }

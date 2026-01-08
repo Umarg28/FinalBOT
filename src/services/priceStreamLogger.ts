@@ -22,8 +22,8 @@ const CONFIG = {
   MARKET_SLUG_PREFIXES: [
     'btc-updown-15m',           // BTC 15-minute
     'eth-updown-15m',           // ETH 15-minute
-    'bitcoin-up-or-down',       // BTC hourly
-    'ethereum-up-or-down',      // ETH hourly
+    'bitcoin-up-or-down',       // BTC 1-hour
+    'ethereum-up-or-down',      // ETH 1-hour
   ],
   GAMMA_API_URL: 'https://gamma-api.polymarket.com/events',
   CLOB_API_URL: 'https://clob.polymarket.com',
@@ -313,23 +313,37 @@ class MarketDiscovery {
   private async fetchMarketsFromUrl(url: string): Promise<MarketInfo[]> {
     try {
       const response = await fetch(url);
-      if (!response.ok) return [];
+      if (!response.ok) {
+        log('debug', `API returned ${response.status} for ${url}`);
+        return [];
+      }
 
       const events = (await response.json()) as GammaEvent[];
       const markets: MarketInfo[] = [];
+
+      // Debug: log what we got for hourly markets
+      if (url.includes('up-or-down') || url.includes('bitcoin-up-or-down') || url.includes('ethereum-up-or-down')) {
+        const hourlyEvents = events.filter(e =>
+          e.slug?.includes('bitcoin-up-or-down') ||
+          e.slug?.includes('ethereum-up-or-down')
+        );
+        if (hourlyEvents.length > 0) {
+          log('debug', `Found ${hourlyEvents.length} hourly events from API: ${hourlyEvents.map(e => e.slug).join(', ')}`);
+        }
+      }
 
       for (const event of events) {
         for (const market of event.markets) {
           // Determine market type from market slug or event slug
           const marketSlug = (market.slug || event.slug || '').toLowerCase();
           const eventSlug = (event.slug || '').toLowerCase();
-          
+
           // Check both market slug and event slug for prefix match
-          let marketType = CONFIG.MARKET_SLUG_PREFIXES.find(prefix => 
-            marketSlug.startsWith(prefix.toLowerCase()) || 
+          let marketType = CONFIG.MARKET_SLUG_PREFIXES.find(prefix =>
+            marketSlug.startsWith(prefix.toLowerCase()) ||
             eventSlug.startsWith(prefix.toLowerCase())
           );
-          
+
           if (!marketType) continue;
 
           let tokenIds: string[] = [];
@@ -379,6 +393,15 @@ class MarketDiscovery {
       const allMarkets = await this.fetchAllMarkets();
       const now = Date.now();
 
+      // Debug: Count markets by type
+      const hourlyCount = allMarkets.filter(m =>
+        m.market_type === 'bitcoin-up-or-down' || m.market_type === 'ethereum-up-or-down'
+      ).length;
+      const fifteenMinCount = allMarkets.filter(m =>
+        m.market_type === 'btc-updown-15m' || m.market_type === 'eth-updown-15m'
+      ).length;
+      log('debug', `fetchAllMarkets returned ${allMarkets.length} total: ${hourlyCount} hourly, ${fifteenMinCount} 15-min`);
+
       this.currentMarkets.clear();
       this.nextMarkets.clear();
 
@@ -388,6 +411,14 @@ class MarketDiscovery {
           marketsByType.set(market.market_type, []);
         }
         marketsByType.get(market.market_type)!.push(market);
+      }
+
+      // Debug: Log counts per market type
+      for (const marketType of CONFIG.MARKET_SLUG_PREFIXES) {
+        const count = marketsByType.get(marketType)?.length || 0;
+        if (count === 0) {
+          log('warn', `No markets found for type: ${marketType}`);
+        }
       }
 
       for (const marketType of CONFIG.MARKET_SLUG_PREFIXES) {

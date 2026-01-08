@@ -24,19 +24,25 @@ export interface RebalanceConfig {
   min_trade_size: number;
   max_trade_size: number;
 
-  // Market-specific trade sizing (1-hour vs 15-minute)
-  // 1-Hour markets (conservative)
+  // Market-specific trade sizing (5-min, 15-min, 1-hour)
+  // 1-Hour markets (conservative) - legacy, may not be available
   sizing_1h_base: number;
   sizing_1h_multiplier: number;
   sizing_1h_min_trade: number;
   sizing_1h_max_trade: number;
   sizing_1h_cooldown_sec: number;
-  // 15-Minute markets (aggressive)
+  // 15-Minute markets (moderate)
   sizing_15m_base: number;
   sizing_15m_multiplier: number;
   sizing_15m_min_trade: number;
   sizing_15m_max_trade: number;
   sizing_15m_cooldown_sec: number;
+  // 5-Minute markets (aggressive - fast markets)
+  sizing_5m_base?: number;
+  sizing_5m_multiplier?: number;
+  sizing_5m_min_trade?: number;
+  sizing_5m_max_trade?: number;
+  sizing_5m_cooldown_sec?: number;
 
   // Price / execution safety
   slippage_buffer: number;
@@ -90,18 +96,24 @@ const DEFAULT_CONFIG: RebalanceConfig = {
   max_rebalance_step_pct: 0.20,
   min_trade_size: 0.01,
   max_trade_size: 26.0,
-  // 1-Hour markets (conservative)
+  // 1-Hour markets (conservative) - legacy
   sizing_1h_base: 0.50,
   sizing_1h_multiplier: 8.00,
   sizing_1h_min_trade: 0.01,
   sizing_1h_max_trade: 14.00,
   sizing_1h_cooldown_sec: 6,
-  // 15-Minute markets (aggressive)
+  // 15-Minute markets (moderate)
   sizing_15m_base: 0.25,
   sizing_15m_multiplier: 12.00,
   sizing_15m_min_trade: 0.01,
   sizing_15m_max_trade: 26.00,
   sizing_15m_cooldown_sec: 2,
+  // 5-Minute markets (aggressive - fast markets)
+  sizing_5m_base: 0.15,
+  sizing_5m_multiplier: 15.00,
+  sizing_5m_min_trade: 0.01,
+  sizing_5m_max_trade: 30.00,
+  sizing_5m_cooldown_sec: 1,
   slippage_buffer: 0.005,
   order_type: "limit",
   limit_price_offset: 0.003,

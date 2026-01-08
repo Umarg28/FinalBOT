@@ -668,8 +668,8 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
   /**
    * Get cooldown seconds based on market type
-   * 1-Hour: 6 seconds
-   * 15-Min: 2 seconds
+   * 15-Min: 1-2 seconds
+   * 1-Hour: 3-6 seconds
    */
   private getMarketCooldown(marketType: string): number {
     const config = this.rebalanceConfig;

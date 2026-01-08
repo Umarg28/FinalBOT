@@ -69,25 +69,27 @@ max_trade_size: 35.0
 # ----------------------------------------------------------------------------
 # 3b. MARKET-SPECIFIC TRADE SIZING
 # ----------------------------------------------------------------------------
-# Different sizing for 1-hour vs 15-minute markets:
-#   - 1-hour = conservative (smaller bets, slower)
-#   - 15-minute = aggressive (bigger bets, faster)
+# Different sizing for 5-min, 15-min, and 1-hour markets:
+#   - 5-minute = most aggressive (biggest bets, fastest)
+#   - 15-minute = moderate (balanced approach)
+#   - 1-hour = conservative (smaller bets, slower) - legacy, may not exist
+#
+# NOTE: Polymarket replaced 1-hour markets with 5-minute markets in Jan 2026
 #
 # Formula: trade_size = base + (price × multiplier)
 #
 # ┌─────────────┬──────────┬────────────┬───────────┬───────────┬─────────────┐
 # │ Market Type │ Base ($) │ Multiplier │ Min Trade │ Max Trade │ Cooldown(s) │
 # ├─────────────┼──────────┼────────────┼───────────┼───────────┼─────────────┤
-# │ 1-Hour      │ $0.50    │ 8.00       │ $0.01     │ $14.00    │ 6 sec       │
-# │ 15-Minute   │ $0.25    │ 12.00      │ $0.01     │ $26.00    │ 2 sec       │
+# │ 5-Minute    │ $0.25    │ 20.00      │ $0.25     │ $40.00    │ 1 sec       │
+# │ 15-Minute   │ $0.50    │ 16.00      │ $0.50     │ $35.00    │ 1 sec       │
+# │ 1-Hour      │ $1.00    │ 12.00      │ $0.50     │ $20.00    │ 3 sec       │
 # └─────────────┴──────────┴────────────┴───────────┴───────────┴─────────────┘
 #
 # EXAMPLES:
-#   1-Hour @ $0.50:    $0.50 + (0.50 × 8)  = $4.50
-#   15-Min @ $0.50:    $0.25 + (0.50 × 12) = $6.25
-#
-#   1-Hour @ $0.80:    $0.50 + (0.80 × 8)  = $6.90
-#   15-Min @ $0.80:    $0.25 + (0.80 × 12) = $9.85
+#   5-Min @ $0.50:     $0.25 + (0.50 × 20) = $10.25
+#   15-Min @ $0.50:    $0.50 + (0.50 × 16) = $8.50
+#   1-Hour @ $0.50:    $1.00 + (0.50 × 12) = $7.00
 
 # --- 1-HOUR MARKET SETTINGS (more aggressive for profits) ---
 sizing_1h_base: 1.00
@@ -96,12 +98,19 @@ sizing_1h_min_trade: 0.50
 sizing_1h_max_trade: 20.00
 sizing_1h_cooldown_sec: 3
 
-# --- 15-MINUTE MARKET SETTINGS (aggressive) ---
+# --- 15-MINUTE MARKET SETTINGS (moderate) ---
 sizing_15m_base: 0.50
 sizing_15m_multiplier: 16.00
 sizing_15m_min_trade: 0.50
 sizing_15m_max_trade: 35.00
 sizing_15m_cooldown_sec: 1
+
+# --- 5-MINUTE MARKET SETTINGS (aggressive - fast markets) ---
+sizing_5m_base: 0.25
+sizing_5m_multiplier: 20.00
+sizing_5m_min_trade: 0.25
+sizing_5m_max_trade: 40.00
+sizing_5m_cooldown_sec: 1
 
 # ----------------------------------------------------------------------------
 # 3c. BELL CURVE SIZING (maximize middle, minimize extremes)
