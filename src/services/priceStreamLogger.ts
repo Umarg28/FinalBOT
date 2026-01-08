@@ -319,10 +319,19 @@ class MarketDiscovery {
       const markets: MarketInfo[] = [];
 
       for (const event of events) {
-        const marketType = CONFIG.MARKET_SLUG_PREFIXES.find(prefix => event.slug.startsWith(prefix));
-        if (!marketType) continue;
-
         for (const market of event.markets) {
+          // Determine market type from market slug or event slug
+          const marketSlug = (market.slug || event.slug || '').toLowerCase();
+          const eventSlug = (event.slug || '').toLowerCase();
+          
+          // Check both market slug and event slug for prefix match
+          let marketType = CONFIG.MARKET_SLUG_PREFIXES.find(prefix => 
+            marketSlug.startsWith(prefix.toLowerCase()) || 
+            eventSlug.startsWith(prefix.toLowerCase())
+          );
+          
+          if (!marketType) continue;
+
           let tokenIds: string[] = [];
           let outcomeNames: string[] = [];
 

@@ -20,7 +20,7 @@ import logger from "./utils/logger";
 // Import price stream logger - starts WebSocket connection for live prices
 import priceStreamLogger from "./services/priceStreamLogger";
 // Import market tracker for dashboard functionality
-import marketTracker from "./services/marketTracker";
+import marketTracker, { type MarketTrackerInstance } from "./services/marketTracker";
 // Import config watcher for hot-reloading
 import { startConfigWatcher, stopConfigWatcher } from "./config/rebalanceConfig";
 
@@ -277,6 +277,27 @@ export class PolymarketBot {
    * Start the bot main loop
    */
   async start(): Promise<void> {
+    // Generate initial PnL report after a delay to let markets initialize
+    if (this.isPaperMode && this.paperTrader) {
+      setTimeout(() => {
+        try {
+          logger.info("Generating initial formatted PnL report...");
+          this.paperTrader.generateFormattedPnLReport();
+        } catch (error) {
+          logger.error(`Failed to generate initial PnL report: ${error}`);
+        }
+      }, 10000); // Wait 10 seconds for markets to initialize
+      
+      // Also generate report periodically (every 5 minutes)
+      setInterval(() => {
+        try {
+          logger.info("Generating periodic formatted PnL report...");
+          this.paperTrader.generateFormattedPnLReport();
+        } catch (error) {
+          logger.error(`Failed to generate periodic PnL report: ${error}`);
+        }
+      }, 5 * 60 * 1000); // Every 5 minutes
+    }
     if (this.isRunning) {
       logger.warn("Bot is already running");
       return;
@@ -333,6 +354,35 @@ export class PolymarketBot {
         const finalPriceUp = closedMarket.closingPriceUp ?? closedMarket.currentPriceUp ?? 0.5;
         const finalPriceDown = closedMarket.closingPriceDown ?? closedMarket.currentPriceDown ?? 0.5;
 
+        // Also log PnL when market closes (in case pre-close callback didn't fire)
+        // This ensures closed markets are recorded in the text report
+        if (closedMarket.conditionId && (closedMarket.sharesUp > 0 || closedMarket.sharesDown > 0)) {
+          const finalValueUp = closedMarket.sharesUp * finalPriceUp;
+          const finalValueDown = closedMarket.sharesDown * finalPriceDown;
+          const pnlUp = closedMarket.sharesUp > 0 ? finalValueUp - closedMarket.totalCostUp : 0;
+          const pnlDown = closedMarket.sharesDown > 0 ? finalValueDown - closedMarket.totalCostDown : 0;
+          const totalPnl = pnlUp + pnlDown;
+          const totalCost = closedMarket.totalCostUp + closedMarket.totalCostDown;
+          const pnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+          logger.info(`📊 Logging closed market PnL: ${closedMarket.marketName} - ConditionId: ${closedMarket.conditionId} - PnL: $${totalPnl.toFixed(2)}`);
+
+          // Log market PnL data (stored in memory for TXT report generation)
+          // This ensures markets that close without pre-close callback are still recorded
+          this.paperTrader.logMarketPnLFromDashboard(
+            closedMarket.marketName || "Unknown",
+            closedMarket.conditionId || "",
+            totalPnl,
+            pnlPercent,
+            closedMarket.sharesUp,
+            closedMarket.sharesDown,
+            finalPriceUp,
+            finalPriceDown
+          );
+        } else {
+          logger.warn(`⚠️ Skipping PnL log for closed market: ${closedMarket.marketName} - ConditionId: ${closedMarket.conditionId || 'missing'} - Shares: Up=${closedMarket.sharesUp}, Down=${closedMarket.sharesDown}`);
+        }
+
         this.paperTrader.settleMarket(
           closedMarket.conditionId || "",
           finalPriceUp,
@@ -359,7 +409,7 @@ export class PolymarketBot {
 
         logger.info(`📊 Market ending in 5s: ${market.marketName} - PnL: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}%)`);
 
-        // Log to PROFITS CSV using marketTracker data (matches dashboard exactly)
+        // Log market PnL data (stored in memory for TXT report generation)
         this.paperTrader.logMarketPnLFromDashboard(
           market.marketName || "Unknown",
           market.conditionId || "",

@@ -57,7 +57,7 @@ export interface MarketStats {
     closingPriceDown?: number;
 }
 
-class MarketTracker {
+export class MarketTracker {
     private markets: Map<string, MarketStats> = new Map();
     private lastDisplayTime = 0;
     // Stable dashboard: update every 500ms for responsive price updates
@@ -92,8 +92,10 @@ class MarketTracker {
         }
         
         const runId = getRunId();
-        this.csvFilePath = path.join(targetDir, `${fileName}_${runId}.csv`);
-        this.initializeCsvFile();
+        // CSV file generation disabled - only TXT reports are used now
+        // this.csvFilePath = path.join(targetDir, `${fileName}_${runId}.csv`);
+        // this.initializeCsvFile();
+        this.csvFilePath = ''; // Initialize to satisfy TypeScript (CSV functionality disabled)
     }
 
     /**
@@ -296,13 +298,14 @@ class MarketTracker {
             market.marketSlug || '' // Market Slug
         ].join(',');
 
-        // Append to CSV file
-        try {
-            fs.appendFileSync(this.csvFilePath, row + '\n', 'utf8');
-            this.loggedMarkets.add(market.marketKey);
-        } catch (error) {
-            console.error(`Failed to write PnL to CSV: ${error}`);
-        }
+        // CSV writing disabled - only TXT reports are used now
+        // try {
+        //     fs.appendFileSync(this.csvFilePath, row + '\n', 'utf8');
+        //     this.loggedMarkets.add(market.marketKey);
+        // } catch (error) {
+        //     console.error(`Failed to write PnL to CSV: ${error}`);
+        // }
+        this.loggedMarkets.add(market.marketKey);
     }
 
     /**
@@ -629,9 +632,61 @@ class MarketTracker {
     }
 
     /**
+     * Extract hour number from market key (e.g., "BTC-UpDown-1h-6" -> 6)
+     */
+    private extractHourFromMarketKey(marketKey: string): number | null {
+        // Market keys for 1-hour markets have format: "BTC-UpDown-1h-6" or "ETH-UpDown-1h-9"
+        const match = marketKey.match(/-1h-(\d+)$/);
+        if (match) {
+            return parseInt(match[1], 10);
+        }
+        return null;
+    }
+
+    /**
+     * Check if a market is a 1-hour market (not a 15-min time-window market)
+     * 1-hour markets have single times like "6AM ET", not ranges like "10:15-10:30"
+     */
+    private is1HourMarket(marketKey: string, marketName?: string): boolean {
+        // Check by market key pattern
+        if (marketKey.includes('-1h')) {
+            return true;
+        }
+        
+        // Check by market name pattern if provided
+        if (marketName) {
+            const nameLower = marketName.toLowerCase();
+            // 1-hour markets have single time like "6AM ET" but NO time range with colon
+            const hasSingleTime = /\d{1,2}\s*(?:am|pm)\s*et/i.test(marketName) || /\d{1,2}(?:am|pm)-et/i.test(marketName);
+            const hasTimeRange = /\d{1,2}:\d{2}\s*(?:am|pm)\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)/i.test(marketName);
+            const hasUpDown = /(?:up|down).*?(?:up|down)|updown/i.test(nameLower);
+            const hasCrypto = /(?:bitcoin|ethereum|btc|eth)/i.test(marketName);
+            
+            // If it's Up/Down crypto with single time but NO time range, it's hourly
+            return hasUpDown && hasCrypto && hasSingleTime && !hasTimeRange;
+        }
+        
+        return false;
+    }
+
+    /**
      * Extract time window from market name (e.g., "10:15-10:30" or "10:30-10:45")
+     * Returns null for 1-hour markets (they don't have time windows)
      */
     private extractTimeWindow(marketName: string): string | null {
+        // First check if this is a 1-hour market - if so, don't extract time window
+        // 1-hour markets have single times like "6AM ET", not ranges
+        const hasSingleTime = /\d{1,2}\s*(?:am|pm)\s*et/i.test(marketName) || /\d{1,2}(?:am|pm)-et/i.test(marketName);
+        const hasTimeRange = /\d{1,2}:\d{2}\s*(?:am|pm)\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)/i.test(marketName);
+        const nameLower = marketName.toLowerCase();
+        const hasUpDown = /(?:up|down).*?(?:up|down)|updown/i.test(nameLower);
+        const hasCrypto = /(?:bitcoin|ethereum|btc|eth)/i.test(marketName);
+        
+        // If it's a 1-hour market (Up/Down crypto with single time but NO time range), return null
+        if (hasUpDown && hasCrypto && hasSingleTime && !hasTimeRange) {
+            return null;
+        }
+        
         // Look for patterns like "10:15-10:30", "10:30-10:45", "10:15AM-10:30AM", "10:15 AM - 10:30 AM", etc.
         // Also handle formats like "December 23, 10:15AM-10:30AM ET"
         const timePatterns = [
@@ -651,8 +706,14 @@ class MarketTracker {
     /**
      * Check if a time-window market has passed (e.g., "10:30-10:45" where current time > 10:45)
      * Assumes times are in ET/EST timezone
+     * Returns false for 1-hour markets (they use endDate instead)
      */
-    private isTimeWindowMarketPassed(marketName: string): boolean {
+    private isTimeWindowMarketPassed(marketName: string, marketKey?: string): boolean {
+        // Skip 1-hour markets - they use endDate check instead
+        if (marketKey && this.is1HourMarket(marketKey, marketName)) {
+            return false;
+        }
+        
         const timeWindow = this.extractTimeWindow(marketName);
         if (!timeWindow) {
             return false; // Not a time-window market, can't determine if passed
@@ -817,8 +878,14 @@ class MarketTracker {
 
     /**
      * Remove previous time window markets when a new one starts
+     * Skips 1-hour markets - they are handled by closeOldMarketsInCategory
      */
     private removePreviousTimeWindow(newMarket: MarketStats): void {
+        // Skip 1-hour markets - they don't have time windows and are handled differently
+        if (this.is1HourMarket(newMarket.marketKey, newMarket.marketName)) {
+            return;
+        }
+        
         const newTimeWindow = this.extractTimeWindow(newMarket.marketName);
         if (!newTimeWindow) {
             return; // Not a time-window market
@@ -923,7 +990,7 @@ class MarketTracker {
     /**
      * Close old markets in the same category when a new one opens
      * Only closes the oldest market in the same category, not all of them
-     * For hourly markets: Only close if we're at max limit, otherwise allow multiple hours to coexist
+     * For hourly markets: Close old markets that have ended, or if at max limit
      * This allows different categories to coexist up to the max limit
      */
     private async closeOldMarketsInCategory(newMarket: MarketStats, newCategory: string | null): Promise<void> {
@@ -931,12 +998,7 @@ class MarketTracker {
 
         // Check if this is an hourly market category
         const isHourlyCategory = newCategory === 'BTC-UpDown-1h' || newCategory === 'ETH-UpDown-1h';
-        
-        // For hourly markets, only close old ones if we're at or over the max limit
-        // Otherwise, allow multiple hourly markets to coexist
-        if (isHourlyCategory && this.markets.size < this.maxMarkets) {
-            return; // Don't close hourly markets if we have room
-        }
+        const now = Date.now();
 
         // Find all markets in the same category (excluding the new one)
         const marketsInCategory: Array<{ key: string; market: MarketStats }> = [];
@@ -950,25 +1012,113 @@ class MarketTracker {
             }
         }
 
-        // Only close the oldest market in the same category
-        // Sort by lastUpdate (oldest first) and take only the oldest one
-        if (marketsInCategory.length > 0) {
-            marketsInCategory.sort((a, b) => a.market.lastUpdate - b.market.lastUpdate);
-            const oldestMarket = marketsInCategory[0];
+        if (marketsInCategory.length === 0) {
+            return; // No markets in same category to close
+        }
+
+        // For hourly markets: Close old markets that have ended (endDate passed)
+        // OR when a new hour market starts, close the previous hour (even if not expired)
+        // OR if we're at max limit, close the oldest one
+        if (isHourlyCategory) {
+            // First, close any markets that have ended
+            const expiredMarkets = marketsInCategory.filter(m => 
+                m.market.endDate && m.market.endDate <= now
+            );
             
-            // Record profit from point of new market opening
-            await this.recordProfitAtMarketSwitch(oldestMarket.market, newMarket);
-            
-            // Remove from tracking
-            this.markets.delete(oldestMarket.key);
-            
-            // Trigger position closing callback if set
-            if (this.onMarketCloseCallback) {
-                try {
-                    await this.onMarketCloseCallback(oldestMarket.market);
-                } catch (error) {
-                    console.error(`Error closing positions for market ${oldestMarket.key}:`, error);
+            if (expiredMarkets.length > 0) {
+                // Close all expired markets
+                for (const expiredMarket of expiredMarkets) {
+                    // Record profit from point of new market opening
+                    await this.recordProfitAtMarketSwitch(expiredMarket.market, newMarket);
+                    
+                    // Remove from tracking
+                    this.markets.delete(expiredMarket.key);
+                    
+                    // Trigger position closing callback if set
+                    if (this.onMarketCloseCallback) {
+                        try {
+                            await this.onMarketCloseCallback(expiredMarket.market);
+                        } catch (error) {
+                            console.error(`Error closing positions for market ${expiredMarket.key}:`, error);
+                        }
+                    }
                 }
+                return; // Done closing expired markets
+            }
+            
+            // For 1-hour markets: When a new hour market starts, close the previous hour
+            // This ensures we switch to the new hour market for trading
+            // Check if newMarket has a different hour than existing markets
+            const newMarketHour = this.extractHourFromMarketKey(newMarket.marketKey);
+            if (newMarketHour !== null) {
+                // Find markets from previous hours (different hour number)
+                const previousHourMarkets = marketsInCategory.filter(m => {
+                    const marketHour = this.extractHourFromMarketKey(m.market.marketKey);
+                    return marketHour !== null && marketHour !== newMarketHour;
+                });
+                
+                if (previousHourMarkets.length > 0) {
+                    // Close all previous hour markets (switch to new hour)
+                    for (const prevMarket of previousHourMarkets) {
+                        // Record profit from point of new market opening
+                        await this.recordProfitAtMarketSwitch(prevMarket.market, newMarket);
+                        
+                        // Remove from tracking
+                        this.markets.delete(prevMarket.key);
+                        
+                        // Trigger position closing callback if set
+                        if (this.onMarketCloseCallback) {
+                            try {
+                                await this.onMarketCloseCallback(prevMarket.market);
+                            } catch (error) {
+                                console.error(`Error closing positions for market ${prevMarket.key}:`, error);
+                            }
+                        }
+                    }
+                    return; // Done closing previous hour markets
+                }
+            }
+            
+            // If no expired markets and no previous hour markets, and we're at max limit, close the oldest one
+            if (this.markets.size >= this.maxMarkets) {
+                marketsInCategory.sort((a, b) => a.market.lastUpdate - b.market.lastUpdate);
+                const oldestMarket = marketsInCategory[0];
+                
+                // Record profit from point of new market opening
+                await this.recordProfitAtMarketSwitch(oldestMarket.market, newMarket);
+                
+                // Remove from tracking
+                this.markets.delete(oldestMarket.key);
+                
+                // Trigger position closing callback if set
+                if (this.onMarketCloseCallback) {
+                    try {
+                        await this.onMarketCloseCallback(oldestMarket.market);
+                    } catch (error) {
+                        console.error(`Error closing positions for market ${oldestMarket.key}:`, error);
+                    }
+                }
+            }
+            // If not at max limit and no expired/previous hour markets, allow multiple hours to coexist
+            return;
+        }
+
+        // For non-hourly markets (15-min): Always close the oldest one in same category
+        marketsInCategory.sort((a, b) => a.market.lastUpdate - b.market.lastUpdate);
+        const oldestMarket = marketsInCategory[0];
+        
+        // Record profit from point of new market opening
+        await this.recordProfitAtMarketSwitch(oldestMarket.market, newMarket);
+        
+        // Remove from tracking
+        this.markets.delete(oldestMarket.key);
+        
+        // Trigger position closing callback if set
+        if (this.onMarketCloseCallback) {
+            try {
+                await this.onMarketCloseCallback(oldestMarket.market);
+            } catch (error) {
+                console.error(`Error closing positions for market ${oldestMarket.key}:`, error);
             }
         }
     }
@@ -1090,11 +1240,12 @@ class MarketTracker {
             market.marketSlug || ''
         ].join(',');
 
-        try {
-            fs.appendFileSync(this.csvFilePath, row + '\n', 'utf8');
-        } catch (error) {
-            console.error(`Failed to write market PnL to CSV: ${error}`);
-        }
+        // CSV writing disabled - only TXT reports are used now
+        // try {
+        //     fs.appendFileSync(this.csvFilePath, row + '\n', 'utf8');
+        // } catch (error) {
+        //     console.error(`Failed to write market PnL to CSV: ${error}`);
+        // }
     }
 
     /**
@@ -1318,6 +1469,7 @@ class MarketTracker {
             }
 
             // Remove previous time window markets when a new one starts
+            // Note: This skips 1-hour markets which are handled by closeOldMarketsInCategory
             this.removePreviousTimeWindow(market);
             
             // Record PnL for ALL existing markets at the time of new market opening
@@ -1819,7 +1971,8 @@ class MarketTracker {
                 return false; // Market is closed
             }
             // Check if time-window market has passed (e.g., "10:30-10:45" where current time > 10:45)
-            if (this.isTimeWindowMarketPassed(m.marketName)) {
+            // Skip this check for 1-hour markets - they use endDate instead
+            if (!this.is1HourMarket(m.marketKey, m.marketName) && this.isTimeWindowMarketPassed(m.marketName, m.marketKey)) {
                 return false; // Market time window has passed
             }
             // Fallback: if market hasn't been updated in a very long time, consider it stale
@@ -1834,7 +1987,8 @@ class MarketTracker {
         const closedMarkets: MarketStats[] = [];
         for (const [key, value] of this.markets.entries()) {
             const isClosed = value.endDate && now > value.endDate;
-            const isTimeWindowPassed = this.isTimeWindowMarketPassed(value.marketName);
+            // Skip time-window check for 1-hour markets - they use endDate instead
+            const isTimeWindowPassed = !this.is1HourMarket(key, value.marketName) && this.isTimeWindowMarketPassed(value.marketName, key);
             const isStale = now - value.lastUpdate > STALE_MARKET_THRESHOLD;
             if (isClosed || isTimeWindowPassed || isStale) {
                 // Only log markets that have actual investment (not just stale with no trades)
@@ -2150,15 +2304,10 @@ class MarketTracker {
                 totalTrades1h += (market.tradesUp + market.tradesDown);
             }
             
-            // Compact display format
-            const marketNameDisplay = market.marketName.length > 65
-                ? market.marketName.substring(0, 62) + '...'
-                : market.marketName;
-
             // Calculate time left - ALWAYS recalculate for 15-min markets from slug
             let timeLeftStr = '';
             const is15Min = market.marketKey.includes('-15');
-            
+
             if (is15Min) {
                 // For 15-min markets: ALWAYS calculate from slug (most reliable)
                 let calculatedEndDate: number | null = null;
@@ -2190,23 +2339,23 @@ class MarketTracker {
                 // Safety check: 15-min markets should never show more than 16 minutes
                 if (calculatedEndDate) {
                     market.endDate = calculatedEndDate;
-                    const timeLeftMs = calculatedEndDate - now;
-                    
+                    let timeLeftMs = calculatedEndDate - now;
+
                     // If time is invalid, recalculate from current window
                     if (timeLeftMs > 16 * 60 * 1000 || timeLeftMs < -60 * 1000) {
                         const current15MinStart = Math.floor(now / (15 * 60 * 1000)) * (15 * 60 * 1000);
                         const correctEndDate = current15MinStart + (15 * 60 * 1000);
                         market.endDate = correctEndDate;
-                        const correctedTimeLeft = correctEndDate - now;
-                        
-                        if (correctedTimeLeft > 0 && correctedTimeLeft <= 15 * 60 * 1000) {
-                            const mins = Math.floor(correctedTimeLeft / 60000);
-                            const secs = Math.floor((correctedTimeLeft % 60000) / 1000);
-                            timeLeftStr = `⏱️ ${mins}m ${secs}s left`;
-                        } else {
-                            timeLeftStr = '⌛ Expired';
-                        }
+                        calculatedEndDate = correctEndDate; // Update calculatedEndDate too
+                        timeLeftMs = correctEndDate - now;
+                    }
+
+                    if (timeLeftMs > 0 && timeLeftMs <= 15 * 60 * 1000) {
+                        const mins = Math.floor(timeLeftMs / 60000);
+                        const secs = Math.floor((timeLeftMs % 60000) / 1000);
+                        timeLeftStr = `⏱️ ${mins}m ${secs}s left`;
                     } else if (timeLeftMs > 0) {
+                        // Should be rare (slightly over 15m), still show countdown
                         const mins = Math.floor(timeLeftMs / 60000);
                         const secs = Math.floor((timeLeftMs % 60000) / 1000);
                         timeLeftStr = `⏱️ ${mins}m ${secs}s left`;
@@ -2229,8 +2378,142 @@ class MarketTracker {
                 }
             }
 
+            // Build market name for display using the FINAL endDate, so the
+            // window label (e.g., "4:15PM-4:30PM") always matches the countdown
+            let marketNameDisplay = market.marketName;
+            if (is15Min && market.endDate && market.endDate > 0) {
+                try {
+                    const endDateMs = market.endDate < 10000000000 ? market.endDate * 1000 : market.endDate;
+                    const endTime = endDateMs;
+                    const startTime = endTime - (15 * 60 * 1000); // 15 minutes before end
+
+                    const formatTimeWindow = (date: Date) => {
+                        const etFormatter = new Intl.DateTimeFormat("en-US", {
+                            timeZone: "America/New_York",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                        });
+                        const parts = etFormatter.formatToParts(date);
+                        const h = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+                        const m = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
+                        const ampm = h >= 12 ? "PM" : "AM";
+                        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                        return `${h12}:${m.toString().padStart(2, "0")}${ampm}`;
+                    };
+
+                    const startStr = formatTimeWindow(new Date(startTime));
+                    const endStr = formatTimeWindow(new Date(endTime));
+
+                    // For Up/Down crypto markets, normalize base name to just
+                    // "Bitcoin Up or Down" or "Ethereum Up or Down" so we can
+                    // append our own clean time window without duplicating the
+                    // original Polymarket window text.
+                    let baseName = market.marketName;
+                    const upDownMatch = market.marketName.match(/^(Bitcoin Up or Down|Ethereum Up or Down)\b/i);
+                    if (upDownMatch) {
+                        baseName = upDownMatch[1];
+                    } else {
+                        baseName = this.getBaseMarketName(market.marketName);
+                    }
+                    const dateMatch = market.marketName.match(
+                        /(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d+/i
+                    );
+                    const dateStr =
+                        (dateMatch ? dateMatch[0] : 
+                        new Date().toLocaleDateString("en-US", {
+                            month: "long",
+                            day: "numeric",
+                            timeZone: "America/New_York",
+                        }));
+
+                    marketNameDisplay = `${baseName} - ${dateStr}, ${startStr}-${endStr} ET`;
+                } catch (e) {
+                    // If parsing fails, use original market name
+                }
+            }
+
+            if (marketNameDisplay.length > 65) {
+                marketNameDisplay = marketNameDisplay.substring(0, 62) + "...";
+            }
+
+            // Calculate next market timer (only show in final minute)
+            let nextMarketTimerStr = '';
+            if (is15Min && market.endDate && market.endDate > 0) {
+                // Use market.endDate which was set from calculatedEndDate above
+                // It's already in milliseconds (from calculatedEndDate calculation)
+                const currentMarketEndMs = market.endDate;
+                
+                // Next market window: starts at current market end, ends 15 minutes later
+                const nextMarketStart = currentMarketEndMs;
+                const nextMarketEnd = nextMarketStart + (15 * 60 * 1000);
+                const timeUntilNextMarket = nextMarketStart - now;
+                
+                // Only show if less than or equal to 60 seconds until next market (final minute)
+                if (timeUntilNextMarket > 0 && timeUntilNextMarket <= 60 * 1000) {
+                        // Format next market time window in ET (e.g., "4:30PM-4:45PM")
+                        const formatTimeWindow = (date: Date) => {
+                            const etFormatter = new Intl.DateTimeFormat('en-US', {
+                                timeZone: 'America/New_York',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false,
+                            });
+                            const parts = etFormatter.formatToParts(date);
+                            const h = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+                            const m = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+                            const ampm = h >= 12 ? 'PM' : 'AM';
+                            const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                            return `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
+                        };
+                        
+                        const nextStartStr = formatTimeWindow(new Date(nextMarketStart));
+                        const nextEndStr = formatTimeWindow(new Date(nextMarketEnd));
+                        const nextMarketWindowStr = `${nextStartStr}-${nextEndStr}`;
+                        
+                        // Format countdown (minutes and seconds in final minute)
+                        const minsUntilNext = Math.floor(timeUntilNextMarket / 60000);
+                        const secsUntilNext = Math.floor((timeUntilNextMarket % 60000) / 1000);
+                        nextMarketTimerStr = ` | ${nextMarketWindowStr} market starting in : ${minsUntilNext}m ${secsUntilNext.toString().padStart(2, '0')}sec`;
+                    }
+            } else if (market.endDate && market.endDate > 0) {
+                // For hourly markets, calculate next hour market
+                const endDateMs = market.endDate < 10000000000 ? market.endDate * 1000 : market.endDate;
+                const nextHourStart = endDateMs; // Next market starts when current ends
+                const nextHourEnd = nextHourStart + (60 * 60 * 1000); // 1 hour later
+                const timeUntilNextMarket = nextHourStart - now;
+                
+                // Only show if less than or equal to 60 seconds until next market
+                if (timeUntilNextMarket > 0 && timeUntilNextMarket <= 60 * 1000) {
+                    // Format next market time window in ET
+                    const formatTimeWindow = (date: Date) => {
+                        const etFormatter = new Intl.DateTimeFormat('en-US', {
+                            timeZone: 'America/New_York',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false,
+                        });
+                        const parts = etFormatter.formatToParts(date);
+                        const h = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+                        const m = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+                        const ampm = h >= 12 ? 'PM' : 'AM';
+                        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                        return `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
+                    };
+                    
+                    const nextStartStr = formatTimeWindow(new Date(nextHourStart));
+                    const nextEndStr = formatTimeWindow(new Date(nextHourEnd));
+                    const nextMarketWindowStr = `${nextStartStr}-${nextEndStr}`;
+                    
+                    // Format countdown (minutes and seconds in final minute)
+                    const minsUntilNext = Math.floor(timeUntilNextMarket / 60000);
+                    const secsUntilNext = Math.floor((timeUntilNextMarket % 60000) / 1000);
+                    nextMarketTimerStr = ` | ${nextMarketWindowStr} market starting in : ${minsUntilNext}m ${secsUntilNext.toString().padStart(2, '0')}sec`;
+                }
+            }
+
             // Ensure clean formatting - no extra characters
-            outputLines.push(chalk.yellow(`┌─ ${market.marketKey} ${timeLeftStr}`));
+            outputLines.push(chalk.yellow(`┌─ ${market.marketKey} ${timeLeftStr}${nextMarketTimerStr}`));
             outputLines.push(chalk.gray(`│  ${marketNameDisplay}`));
             
             // UP line - matching paper mode format
@@ -2922,6 +3205,17 @@ class MarketTracker {
 
             // Add new market (or update if exists)
             const existingMarket = this.markets.get(marketKey);
+            
+            // For 1-hour markets: don't replace if it's the same market and still active
+            if (!is15Min && existingMarket && existingMarket.marketSlug === slug) {
+                // Same 1-hour market - just update endDate if needed, but don't reset
+                if (endDate && (!existingMarket.endDate || Math.abs(existingMarket.endDate - endDate) > 60000)) {
+                    existingMarket.endDate = endDate;
+                }
+                this.discoveredSlugs.add(slug);
+                continue; // Skip creating new market - keep existing one
+            }
+            
             if (!existingMarket || existingMarket.marketSlug !== slug) {
                 // For 15-min markets, ensure endDate is calculated correctly from slug
                 let finalEndDate = endDate;
@@ -3002,4 +3296,6 @@ class MarketTracker {
     }
 }
 
-export default new MarketTracker();
+const marketTrackerInstance = new MarketTracker();
+export default marketTrackerInstance;
+export type MarketTrackerInstance = MarketTracker;

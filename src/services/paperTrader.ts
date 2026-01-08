@@ -21,6 +21,18 @@ export class PaperTrader {
   private csvFilePath: string;
   private csvInitialized: boolean = false;
   private csvExporter: CSVExporter;
+  private marketPnLData: Map<string, {
+    marketName: string;
+    conditionId: string;
+    marketPnL: any;
+    priceUp: number;
+    priceDown: number;
+    totalPnl: number;
+    pnlPercent: number;
+    sharesUp: number;
+    sharesDown: number;
+    timestamp: number;
+  }> = new Map();
 
   constructor(marketData: MarketDataService, startingBalance?: number) {
     this.marketData = marketData;
@@ -104,7 +116,7 @@ export class PaperTrader {
     priceDown: number
   ): void {
     // Prevent duplicate logging for the same market
-    if (this.loggedMarkets.has(conditionId)) {
+    if (!conditionId || this.loggedMarkets.has(conditionId)) {
       return;
     }
 
@@ -114,51 +126,102 @@ export class PaperTrader {
     }
 
     try {
-      // Use enhanced PnL calculator for accurate calculation
+      // Try to get positions for enhanced calculation, but don't require them
+      // (positions may be settled/removed after market closes)
       const marketPositions = this.getAllPositions().filter(p => p.conditionId === conditionId);
-      if (marketPositions.length === 0) {
-        return;
-      }
-
-      // Build current prices map
-      const currentPrices = new Map<string, number>();
-      for (const pos of marketPositions) {
-        if (pos.outcome?.toLowerCase() === 'up' || pos.outcome?.toLowerCase() === 'yes') {
-          currentPrices.set(pos.tokenId, priceUp);
-        } else if (pos.outcome?.toLowerCase() === 'down' || pos.outcome?.toLowerCase() === 'no') {
-          currentPrices.set(pos.tokenId, priceDown);
+      
+      let marketPnL: any = null;
+      
+      // If we have positions, use enhanced calculator for more detailed PnL
+      if (marketPositions.length > 0) {
+        // Build current prices map
+        const currentPrices = new Map<string, number>();
+        for (const pos of marketPositions) {
+          if (pos.outcome?.toLowerCase() === 'up' || pos.outcome?.toLowerCase() === 'yes') {
+            currentPrices.set(pos.tokenId, priceUp);
+          } else if (pos.outcome?.toLowerCase() === 'down' || pos.outcome?.toLowerCase() === 'no') {
+            currentPrices.set(pos.tokenId, priceDown);
+          }
         }
+
+        // Calculate market PnL using enhanced calculator
+        marketPnL = PnLCalculator.calculateMarketPnL(
+          marketPositions,
+          this.account.tradeHistory.filter(t => 
+            marketPositions.some(p => p.tokenId === t.tokenId)
+          ),
+          conditionId,
+          currentPrices
+        );
       }
 
-      // Calculate market PnL using enhanced calculator
-      const marketPnL = PnLCalculator.calculateMarketPnL(
-        marketPositions,
-        this.account.tradeHistory.filter(t => 
-          marketPositions.some(p => p.tokenId === t.tokenId)
-        ),
+      // Store market PnL data in memory for report generation
+      // Use the passed-in data even if positions are already settled
+      if (!this.marketPnLData) {
+        this.marketPnLData = new Map();
+      }
+      
+      // Create a simplified marketPnL object if we don't have the full calculation
+      const finalMarketPnL = marketPnL || {
+        totalPnl,
+        pnlPercent,
+        positions: [],
+        totalCostBasis: sharesUp > 0 || sharesDown > 0 ? totalPnl / (pnlPercent / 100) : 0
+      };
+      
+      this.marketPnLData.set(conditionId, {
+        marketName,
         conditionId,
-        currentPrices
-      );
+        marketPnL: finalMarketPnL,
+        priceUp,
+        priceDown,
+        totalPnl,
+        pnlPercent,
+        sharesUp,
+        sharesDown,
+        timestamp: Date.now()
+      });
 
-      if (marketPnL) {
-        // Export using enhanced CSV exporter (most recent implementation)
-        this.csvExporter.exportMarketPnLSnapshot(
-          marketPnL,
-          { priceUp, priceDown },
-          `PROFITS_${getRunId()}.csv`,
-          { append: true, includeHeaders: !this.loggedMarkets.has('headers_written') }
-        ).catch(err => logger.error(`Failed to export market PnL: ${err}`));
+      // Mark this market as logged to prevent duplicates
+      this.loggedMarkets.add(conditionId);
 
-        // Mark this market as logged to prevent duplicates
-        this.loggedMarkets.add(conditionId);
-        if (!this.loggedMarkets.has('headers_written')) {
-          this.loggedMarkets.add('headers_written');
-        }
-
-        logger.paper(`📊 Dashboard PnL captured: ${marketName} - ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}%)`);
+      logger.paper(`📊 Dashboard PnL captured: ${marketName} - ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}%)`);
+      
+      // Regenerate report immediately after logging new PnL data
+      // This ensures the text file is updated with the latest data
+      try {
+        this.generateFormattedPnLReport();
+      } catch (reportError) {
+        logger.error(`Failed to regenerate PnL report after logging: ${reportError}`);
       }
     } catch (error) {
-      logger.error(`Failed to write dashboard PNL to CSV: ${error}`);
+      logger.error(`Failed to log market PnL: ${error}`);
+      // Still try to store basic data even if calculation fails
+      if (conditionId && !this.loggedMarkets.has(conditionId)) {
+        if (!this.marketPnLData) {
+          this.marketPnLData = new Map();
+        }
+        this.marketPnLData.set(conditionId, {
+          marketName,
+          conditionId,
+          marketPnL: { totalPnl, pnlPercent, positions: [], totalCostBasis: 0 },
+          priceUp,
+          priceDown,
+          totalPnl,
+          pnlPercent,
+          sharesUp,
+          sharesDown,
+          timestamp: Date.now()
+        });
+        this.loggedMarkets.add(conditionId);
+        
+        // Regenerate report even for fallback data
+        try {
+          this.generateFormattedPnLReport();
+        } catch (reportError) {
+          logger.error(`Failed to regenerate PnL report after fallback logging: ${reportError}`);
+        }
+      }
     }
   }
 
@@ -725,63 +788,28 @@ export class PaperTrader {
   /**
    * Generate a formatted, grouped PnL report as a TXT file
    * Groups markets by hour window (15-min markets + 1-hour market in same hour)
+   * Uses in-memory data instead of CSV files
    */
   generateFormattedPnLReport(): void {
     try {
       const runId = getRunId();
       const logsDir = path.join(process.cwd(), "logs");
       const paperDir = path.join(logsDir, "paper");
-      const pnlCsvPath = path.join(paperDir, `Paper Market PNL_${runId}.csv`);
       const reportPath = path.join(paperDir, `PnL Report_${runId}.txt`);
 
-      if (!fs.existsSync(pnlCsvPath)) {
-        logger.warn(`PNL CSV file not found: ${pnlCsvPath}`);
-        return;
-      }
-
-      // Read and parse CSV
-      const csvContent = fs.readFileSync(pnlCsvPath, "utf8");
-      const lines = csvContent.split("\n").filter(line => line.trim());
-      if (lines.length < 2) {
-        logger.warn("No market data found in PNL CSV");
-        return;
-      }
-
-      // Helper function to parse CSV row with quoted fields
-      const parseCSVRow = (line: string): string[] => {
-        const row: string[] = [];
-        let current = "";
-        let inQuotes = false;
-        for (let j = 0; j < line.length; j++) {
-          const char = line[j];
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === "," && !inQuotes) {
-            row.push(current.trim().replace(/^"|"$/g, ""));
-            current = "";
-          } else {
-            current += char;
-          }
-        }
-        row.push(current.trim().replace(/^"|"$/g, ""));
-        return row;
-      };
-
-      // Parse header
-      const headerRow = parseCSVRow(lines[0]);
-      const marketNameIdx = headerRow.findIndex(h => h.includes("Market Name"));
-      const totalPnlIdx = headerRow.findIndex(h => h.includes("Total PnL"));
-      const pnlPercentIdx = headerRow.findIndex(h => h.includes("PnL Percent"));
-      const avgCostUpIdx = headerRow.findIndex(h => h.includes("Average Cost Per Share UP"));
-      const avgCostDownIdx = headerRow.findIndex(h => h.includes("Average Cost Per Share DOWN"));
-      const sharesUpIdx = headerRow.findIndex(h => h.includes("Shares Up") && !h.includes("Final Value"));
-      const sharesDownIdx = headerRow.findIndex(h => h.includes("Shares Down") && !h.includes("Final Value"));
-      const totalInvestedIdx = headerRow.findIndex(h => h.includes("Total Invested"));
-      const outcomeIdx = headerRow.findIndex(h => h.includes("Outcome"));
-      const switchReasonIdx = headerRow.findIndex(h => h.includes("Market Switch Reason"));
-
-      if (marketNameIdx === -1 || totalPnlIdx === -1) {
-        logger.error("Required columns not found in PNL CSV");
+      // Check if we have any market data
+      if (!this.marketPnLData || this.marketPnLData.size === 0) {
+        // Create an empty report file to indicate the system is ready
+        let emptyReport = "=".repeat(100) + "\n";
+        emptyReport += "                    PAPER TRADING PNL REPORT\n";
+        emptyReport += "=".repeat(100) + "\n\n";
+        emptyReport += "  No market data available yet.\n";
+        emptyReport += "  Report will be updated as markets are traded.\n\n";
+        emptyReport += "=".repeat(100) + "\n";
+        emptyReport += `  Generated: ${new Date().toLocaleString()}\n`;
+        emptyReport += "=".repeat(100) + "\n";
+        fs.writeFileSync(reportPath, emptyReport, "utf8");
+        logger.info(`📊 Empty PnL report created: ${reportPath}`);
         return;
       }
 
@@ -803,30 +831,25 @@ export class PaperTrader {
 
       const markets: MarketData[] = [];
 
-      // Parse data rows (skip header and snapshot rows)
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
+      // Convert in-memory data to MarketData format
+      for (const [conditionId, data] of this.marketPnLData.entries()) {
+        const marketPnL = data.marketPnL;
+        const marketName = data.marketName;
+        
+        // Calculate averages from marketPnL positions
+        const upPositions = marketPnL.positions.filter((p: any) => 
+          p.position.outcome?.toLowerCase() === 'up' || p.position.outcome?.toLowerCase() === 'yes'
+        );
+        const downPositions = marketPnL.positions.filter((p: any) => 
+          p.position.outcome?.toLowerCase() === 'down' || p.position.outcome?.toLowerCase() === 'no'
+        );
 
-        // Parse CSV line
-        const row = parseCSVRow(line);
-
-        const marketName = row[marketNameIdx] || "";
-        const switchReason = row[switchReasonIdx] || "";
-
-        // Only include market closed entries (exclude snapshots)
-        if (switchReason !== "Market Closed") continue;
-
-        const pnlStr = row[totalPnlIdx]?.replace(/[$,]/g, "") || "0";
-        const pnl = parseFloat(pnlStr) || 0;
-        const pnlPercent = parseFloat(row[pnlPercentIdx] || "0") || 0;
-        const avgCostUp = parseFloat(row[avgCostUpIdx] || "0") || 0;
-        const avgCostDown = parseFloat(row[avgCostDownIdx] || "0") || 0;
-        const sharesUp = parseFloat(row[sharesUpIdx] || "0") || 0;
-        const sharesDown = parseFloat(row[sharesDownIdx] || "0") || 0;
-        const totalInvestedStr = row[totalInvestedIdx] || "0";
-        const totalInvested = parseFloat(totalInvestedStr.replace(/[$,]/g, "")) || 0;
-        const outcome = row[outcomeIdx] || "";
+        const sharesUp = upPositions.reduce((sum: number, p: any) => sum + p.position.size, 0);
+        const sharesDown = downPositions.reduce((sum: number, p: any) => sum + p.position.size, 0);
+        const costBasisUp = upPositions.reduce((sum: number, p: any) => sum + p.costBasis, 0);
+        const costBasisDown = downPositions.reduce((sum: number, p: any) => sum + p.costBasis, 0);
+        const avgCostUp = sharesUp > 0 ? costBasisUp / sharesUp : 0;
+        const avgCostDown = sharesDown > 0 ? costBasisDown / sharesDown : 0;
 
         // Determine market type and extract time information
         // 15-min markets have format: "Bitcoin Up or Down - January 8, 12:15PM-12:30PM ET"
@@ -845,8 +868,6 @@ export class PaperTrader {
           if (timeMatch) {
             timeSlot = `${timeMatch[1]}:${timeMatch[2]}-${timeMatch[3]}:${timeMatch[4]}`;
             // Extract hour window - use the START hour for grouping
-            // All 15-min markets that start in the same hour should be grouped together
-            // E.g., 12:00-12:15, 12:15-12:30, 12:30-12:45, 12:45-1:00 all go in "12:00PM-1:00PM" window
             let startH = parseInt(timeMatch[1]);
             const startAmpm = timeMatch[2].toUpperCase();
             
@@ -901,14 +922,14 @@ export class PaperTrader {
 
         markets.push({
           name: marketName,
-          pnl,
-          pnlPercent,
+          pnl: data.totalPnl,
+          pnlPercent: data.pnlPercent,
           avgCostUp,
           avgCostDown,
           sharesUp,
           sharesDown,
-          totalInvested,
-          outcome,
+          totalInvested: marketPnL.totalCostBasis,
+          outcome: "", // Will be determined from final prices
           is15Min,
           is1Hour,
           hourWindow,
