@@ -201,7 +201,7 @@ class MarketTracker {
 
         // Calculate final values and PnL
         const totalInvested = market.investedUp + market.investedDown;
-        const totalCostBasis = market.totalCostUp + market.totalCostDown; // Actual cost basis for PnL calculation
+        const totalCostBasis = market.totalCostUp + market.totalCostDown; // Cost basis excludes fees (matches Polymarket API)
         
         let finalValueUp = 0;
         let finalValueDown = 0;
@@ -221,19 +221,19 @@ class MarketTracker {
 
         if (market.sharesUp > 0 && finalPriceUp > 0) {
             finalValueUp = market.sharesUp * finalPriceUp;
-            // Use totalCostUp (actual cost basis) for accurate PnL calculation (same as display)
+            // Cost basis excludes fees (matches Polymarket API)
             pnlUp = finalValueUp - market.totalCostUp;
         }
 
         if (market.sharesDown > 0 && finalPriceDown > 0) {
             finalValueDown = market.sharesDown * finalPriceDown;
-            // Use totalCostDown (actual cost basis) for accurate PnL calculation (same as display)
+            // Cost basis excludes fees (matches Polymarket API)
             pnlDown = finalValueDown - market.totalCostDown;
         }
 
         const totalFinalValue = finalValueUp + finalValueDown;
         const totalPnl = pnlUp + pnlDown;
-        // Use cost basis (totalCostUp + totalCostDown) for accurate PnL percentage (same as display)
+        // Cost basis excludes fees (matches Polymarket API)
         const pnlPercent = totalCostBasis > 0 ? (totalPnl / totalCostBasis) * 100 : 0;
 
         // Calculate average cost per share
@@ -988,7 +988,7 @@ class MarketTracker {
             return;
         }
         
-        const totalCostBasis = market.totalCostUp + market.totalCostDown; // Actual cost basis for PnL calculation
+        const totalCostBasis = market.totalCostUp + market.totalCostDown; // Cost basis excludes fees (matches Polymarket API)
         
         let finalValueUp = 0;
         let finalValueDown = 0;
@@ -1008,19 +1008,19 @@ class MarketTracker {
 
         if (market.sharesUp > 0 && finalPriceUp > 0) {
             finalValueUp = market.sharesUp * finalPriceUp;
-            // Use totalCostUp (actual cost basis) for accurate PnL calculation (same as display)
+            // Cost basis excludes fees (matches Polymarket API)
             pnlUp = finalValueUp - market.totalCostUp;
         }
 
         if (market.sharesDown > 0 && finalPriceDown > 0) {
             finalValueDown = market.sharesDown * finalPriceDown;
-            // Use totalCostDown (actual cost basis) for accurate PnL calculation (same as display)
+            // Cost basis excludes fees (matches Polymarket API)
             pnlDown = finalValueDown - market.totalCostDown;
         }
 
         const totalFinalValue = finalValueUp + finalValueDown;
         const totalPnl = pnlUp + pnlDown;
-        // Use cost basis (totalCostUp + totalCostDown) for accurate PnL percentage (same as display)
+        // Cost basis excludes fees (matches Polymarket API)
         const pnlPercent = totalCostBasis > 0 ? (totalPnl / totalCostBasis) * 100 : 0;
 
         // Calculate average cost per share
@@ -2061,7 +2061,7 @@ class MarketTracker {
             const avgPriceDown = market.sharesDown > 0 ? market.totalCostDown / market.sharesDown : 0;
             
             // Calculate unrealized PnL
-            // Use totalCost (actual cost basis) instead of invested for accuracy
+            // Cost basis excludes fees (matches Polymarket API)
             // Only calculate if we have valid prices (> 0) and shares
             let currentValueUp = 0;
             let currentValueDown = 0;
@@ -2078,13 +2078,13 @@ class MarketTracker {
 
             if (hasValidPriceUp && market.sharesUp > 0 && market.currentPriceUp !== undefined) {
                 currentValueUp = market.sharesUp * market.currentPriceUp;
-                // Use totalCostUp (shares * avg price) as cost basis for accurate PnL
+                // Cost basis excludes fees (matches Polymarket API)
                 pnlUp = currentValueUp - market.totalCostUp;
             }
 
             if (hasValidPriceDown && market.sharesDown > 0 && market.currentPriceDown !== undefined) {
                 currentValueDown = market.sharesDown * market.currentPriceDown;
-                // Use totalCostDown (shares * avg price) as cost basis for accurate PnL
+                // Cost basis excludes fees (matches Polymarket API)
                 pnlDown = currentValueDown - market.totalCostDown;
             }
 
@@ -2604,7 +2604,7 @@ class MarketTracker {
             }
 
             // Convert paper position to MarketStats format
-            // IMPORTANT: Use totalCostUp/totalCostDown for PnL calculation (same as watcher mode)
+            // IMPORTANT: Cost basis excludes fees (matches Polymarket API)
             // In watcher mode: totalCostUp = shares * price (accumulated from trades)
             // For paper mode: costBasisUp is already the total cost, but we calculate it as shares * avgPrice
             // to match watcher mode's exact calculation

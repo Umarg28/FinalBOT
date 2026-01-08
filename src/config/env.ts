@@ -111,6 +111,9 @@ export const ENV = {
   DISPLAY_MAX_AGE_MINUTES: process.env.DISPLAY_MAX_AGE_MINUTES
     ? parseFloat(process.env.DISPLAY_MAX_AGE_MINUTES)
     : undefined,
+
+  // Enhanced services (poly-sdk)
+  USE_ENHANCED_SERVICES: getEnvVarBoolean("USE_ENHANCED_SERVICES", true), // Enable poly-sdk enhanced services
 };
 
 export default ENV;

@@ -10,6 +10,8 @@ import { ENV } from "../config/env";
 import logger from "../utils/logger";
 import { MarketDataService } from "./marketData";
 import { getRunId } from "../utils/runId";
+import { PnLCalculator, PortfolioPnL } from "../utils/pnlCalculator";
+import { CSVExporter } from "../utils/csvExporter";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -20,6 +22,7 @@ export class PaperTrader {
   private profitCsvPath: string;
   private csvInitialized: boolean = false;
   private profitCsvInitialized: boolean = false;
+  private csvExporter: CSVExporter;
 
   constructor(marketData: MarketDataService, startingBalance?: number) {
     this.marketData = marketData;
@@ -43,6 +46,7 @@ export class PaperTrader {
     const runId = getRunId();
     this.csvFilePath = path.join(paperDir, `Paper Trades_${runId}.csv`);
     this.profitCsvPath = path.join(paperDir, `PROFITS_${runId}.csv`);
+    this.csvExporter = new CSVExporter(paperDir);
     this.initializeCsv();
     this.initializeProfitCsv();
 
@@ -64,7 +68,6 @@ export class PaperTrader {
         "Size",
         "Price",
         "USDC Value",
-        "Fees",
         "Balance After",
         "Strategy",
         "Status",
@@ -166,6 +169,7 @@ export class PaperTrader {
   /**
    * Log market PnL from dashboard data (captures exactly what dashboard shows)
    * Called 5 seconds before market ends
+   * Now uses enhanced PnL calculator and CSV exporter
    */
   logMarketPnLFromDashboard(
     marketName: string,
@@ -190,27 +194,66 @@ export class PaperTrader {
     }
 
     try {
-      const now = new Date();
-      const time = now.toLocaleTimeString("en-US", {
-        hour12: true,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit"
-      });
+      // Use enhanced PnL calculator for accurate calculation
+      const marketPositions = this.getAllPositions().filter(p => p.conditionId === conditionId);
+      if (marketPositions.length === 0) {
+        return;
+      }
 
-      // Simple row: Market Name, Time, PnL (matches what dashboard shows)
-      const row = [
-        `"${marketName.trim()}"`,
-        time,
-        `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`,
-      ].join(",");
+      // Build current prices map
+      const currentPrices = new Map<string, number>();
+      for (const pos of marketPositions) {
+        if (pos.outcome?.toLowerCase() === 'up' || pos.outcome?.toLowerCase() === 'yes') {
+          currentPrices.set(pos.tokenId, priceUp);
+        } else if (pos.outcome?.toLowerCase() === 'down' || pos.outcome?.toLowerCase() === 'no') {
+          currentPrices.set(pos.tokenId, priceDown);
+        }
+      }
 
-      fs.appendFileSync(this.profitCsvPath, row + "\n", "utf8");
+      // Calculate market PnL using enhanced calculator
+      const marketPnL = PnLCalculator.calculateMarketPnL(
+        marketPositions,
+        this.account.tradeHistory.filter(t => 
+          marketPositions.some(p => p.tokenId === t.tokenId)
+        ),
+        conditionId,
+        currentPrices
+      );
 
-      // Mark this market as logged to prevent duplicates
-      this.loggedMarkets.add(conditionId);
+      if (marketPnL) {
+        // Export using enhanced CSV exporter
+        this.csvExporter.exportMarketPnLSnapshot(
+          marketPnL,
+          { priceUp, priceDown },
+          `PROFITS_${getRunId()}.csv`,
+          { append: true, includeHeaders: !this.loggedMarkets.has('headers_written') }
+        ).catch(err => logger.error(`Failed to export market PnL: ${err}`));
 
-      logger.paper(`📊 Dashboard PnL captured: ${marketName} - ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}%)`);
+        // Also write simple row to legacy format for backward compatibility
+        const now = new Date();
+        const time = now.toLocaleTimeString("en-US", {
+          hour12: true,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit"
+        });
+
+        const row = [
+          `"${marketName.trim()}"`,
+          time,
+          `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`,
+        ].join(",");
+
+        fs.appendFileSync(this.profitCsvPath, row + "\n", "utf8");
+
+        // Mark this market as logged to prevent duplicates
+        this.loggedMarkets.add(conditionId);
+        if (!this.loggedMarkets.has('headers_written')) {
+          this.loggedMarkets.add('headers_written');
+        }
+
+        logger.paper(`📊 Dashboard PnL captured: ${marketName} - ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}%)`);
+      }
     } catch (error) {
       logger.error(`Failed to write dashboard PNL to CSV: ${error}`);
     }
@@ -265,7 +308,11 @@ export class PaperTrader {
     // Add payout to balance
     this.account.balance += totalPayout;
 
-    logger.paper(`Market settled: ${positionsToSettle.length} positions, total payout: $${totalPayout.toFixed(2)}, new balance: $${this.account.balance.toFixed(2)}`);
+    // Reset balance to starting balance after market settlement
+    const previousBalance = this.account.balance;
+    this.account.balance = this.account.startingBalance;
+
+    logger.paper(`Market settled: ${positionsToSettle.length} positions, total payout: $${totalPayout.toFixed(2)}, previous balance: $${previousBalance.toFixed(2)}, reset to: $${this.account.balance.toFixed(2)}`);
   }
 
   /**
@@ -378,7 +425,6 @@ export class PaperTrader {
         execution.executedSize.toFixed(4),
         execution.executedPrice.toFixed(4),
         (execution.executedSize * execution.executedPrice).toFixed(2),
-        execution.fees.toFixed(4),
         this.account.balance.toFixed(2),
         signal.strategyName,
         execution.status,
@@ -412,19 +458,19 @@ export class PaperTrader {
       const finalPrice = executePrice * slippage;
 
       const cost = finalPrice * signal.size;
-      const fees = cost * 0.001; // 0.1% fee simulation
+      // Fees removed - no fee simulation
 
       if (signal.side === "BUY") {
         // Check if we have enough balance
-        if (this.account.balance < cost + fees) {
+        if (this.account.balance < cost) {
           execution.status = "failed";
-          execution.error = `Insufficient balance. Need $${(cost + fees).toFixed(2)}, have $${this.account.balance.toFixed(2)}`;
+          execution.error = `Insufficient balance. Need $${cost.toFixed(2)}, have $${this.account.balance.toFixed(2)}`;
           logger.paper(`Order failed: ${execution.error}`);
           return execution;
         }
 
-        // Deduct from balance
-        this.account.balance -= cost + fees;
+        // Deduct from balance (no fees)
+        this.account.balance -= cost;
 
         // Update or create position
         const existingPosition = this.account.positions.get(signal.tokenId);
@@ -459,10 +505,10 @@ export class PaperTrader {
           return execution;
         }
 
-        // Add to balance
-        this.account.balance += cost - fees;
+        // Add to balance (no fees)
+        this.account.balance += cost;
 
-        // Calculate realized PnL
+        // Calculate realized PnL (fees excluded to match Polymarket API)
         const realizedPnl = (finalPrice - existingPosition.avgPrice) * signal.size;
         existingPosition.realizedPnl = (existingPosition.realizedPnl || 0) + realizedPnl;
 
@@ -476,7 +522,7 @@ export class PaperTrader {
       execution.status = "filled";
       execution.executedPrice = finalPrice;
       execution.executedSize = signal.size;
-      execution.fees = fees;
+      execution.fees = 0; // Fees removed
 
       // Save to history
       const history: TradeHistory = {
@@ -487,7 +533,7 @@ export class PaperTrader {
         price: finalPrice,
         size: signal.size,
         usdcSize: cost,
-        fees,
+        fees: 0, // Fees removed
         strategyName: signal.strategyName,
         paperTrade: true,
         timestamp: new Date(),
@@ -545,6 +591,7 @@ export class PaperTrader {
       if (currentPrice) {
         position.currentPrice = currentPrice;
         position.currentValue = currentPrice * position.size;
+        // PnL calculation excludes fees to match Polymarket API
         position.cashPnl = (currentPrice - position.avgPrice) * position.size;
         position.percentPnl = ((currentPrice - position.avgPrice) / position.avgPrice) * 100;
         positionValue += position.currentValue;
@@ -555,8 +602,9 @@ export class PaperTrader {
   }
 
   getTotalPnL(): number {
+    // PnL calculation excludes fees to match Polymarket API
     return this.account.balance - this.account.startingBalance +
-      this.account.tradeHistory.reduce((sum, t) => sum + (t.side === "SELL" ? t.usdcSize - t.fees : 0), 0);
+      this.account.tradeHistory.reduce((sum, t) => sum + (t.side === "SELL" ? t.usdcSize : 0), 0);
   }
 
   getStats(): {
@@ -569,6 +617,9 @@ export class PaperTrader {
     weightedPnL: number;
     totalValue: number;
     initialValue: number;
+    realizedPnL: number;
+    unrealizedPnL: number;
+    totalReturn: number;
   } {
     const trades = this.account.tradeHistory;
     const sellTrades = trades.filter((t) => t.side === "SELL");
@@ -579,8 +630,24 @@ export class PaperTrader {
       return buyTrade && t.price > buyTrade.price;
     });
 
-    // Calculate weighted P&L (from EDGEBOTPRO)
-    // Each position's P&L percentage is weighted by its current value
+    // Use enhanced PnL calculator
+    const positions = Array.from(this.account.positions.values());
+    const currentPrices = new Map<string, number>();
+    
+    // Build current prices map (will be updated when portfolio value is calculated)
+    for (const pos of positions) {
+      currentPrices.set(pos.tokenId, pos.currentPrice || pos.avgPrice);
+    }
+
+    const portfolio = PnLCalculator.calculatePortfolioPnL(
+      positions,
+      trades,
+      currentPrices,
+      this.account.startingBalance,
+      this.account.balance
+    );
+
+    // Calculate weighted P&L (from EDGEBOTPRO) for backward compatibility
     const { weightedPnL, totalValue, initialValue } = this.calculateWeightedPnL();
 
     return {
@@ -589,11 +656,83 @@ export class PaperTrader {
       positionCount: this.account.positions.size,
       tradeCount: trades.length,
       winRate: sellTrades.length > 0 ? (winningTrades.length / sellTrades.length) * 100 : 0,
-      totalPnL: this.account.balance - this.account.startingBalance,
+      totalPnL: portfolio.totalPnL,
       weightedPnL,
       totalValue,
       initialValue,
+      realizedPnL: portfolio.totalRealizedPnL,
+      unrealizedPnL: portfolio.totalUnrealizedPnL,
+      totalReturn: portfolio.totalReturn,
     };
+  }
+
+  /**
+   * Get comprehensive PnL breakdown using enhanced calculator
+   */
+  async getPnLBreakdown(): Promise<PortfolioPnL | null> {
+    try {
+      const positions = Array.from(this.account.positions.values());
+      
+      // Update current prices for all positions
+      const currentPrices = new Map<string, number>();
+      for (const position of positions) {
+        if (!currentPrices.has(position.tokenId)) {
+          const price = await this.marketData.getMidPrice(position.tokenId);
+          if (price !== null) {
+            currentPrices.set(position.tokenId, price);
+            position.currentPrice = price;
+          } else {
+            currentPrices.set(position.tokenId, position.avgPrice);
+          }
+        }
+      }
+
+      return PnLCalculator.calculatePortfolioPnL(
+        positions,
+        this.account.tradeHistory,
+        currentPrices,
+        this.account.startingBalance,
+        this.account.balance
+      );
+    } catch (error) {
+      logger.error(`Failed to calculate PnL breakdown: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Export comprehensive PnL report using enhanced CSV exporter
+   */
+  async exportPnLReport(): Promise<string | null> {
+    try {
+      const portfolio = await this.getPnLBreakdown();
+      if (!portfolio) {
+        return null;
+      }
+
+      return await this.csvExporter.exportPnLReport(
+        portfolio,
+        `PnL_Report_${getRunId()}.csv`
+      );
+    } catch (error) {
+      logger.error(`Failed to export PnL report: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Export trade history using enhanced CSV exporter
+   */
+  async exportTradeHistory(): Promise<string | null> {
+    try {
+      return await this.csvExporter.exportTradeHistory(
+        this.account.tradeHistory,
+        `Trade_History_${getRunId()}.csv`
+      );
+    } catch (error) {
+      logger.error(`Failed to export trade history: ${error}`);
+      return null;
+    }
   }
 
   /**

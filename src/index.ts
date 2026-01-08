@@ -7,8 +7,11 @@ import { connectDB, disconnectDB } from "./config/db";
 import { ENV } from "./config/env";
 import { createClobClient } from "./services/clobClient";
 import { MarketDataService } from "./services/marketData";
+import { EnhancedMarketDataService } from "./services/enhancedMarketData";
 import { TradeExecutor } from "./services/tradeExecutor";
+import { EnhancedTradeExecutor } from "./services/enhancedTradeExecutor";
 import { PaperTrader } from "./services/paperTrader";
+import { WalletPnLService } from "./services/walletPnLService";
 import { Dashboard } from "./services/dashboard";
 import { StrategyManager, BaseStrategy } from "./strategies";
 import { TradeSignal } from "./interfaces";
@@ -28,6 +31,7 @@ export class PolymarketBot {
   private paperTrader!: PaperTrader;
   private strategyManager!: StrategyManager;
   private dashboard?: Dashboard;
+  private walletPnLService?: WalletPnLService;
   private isRunning: boolean = false;
   private isPaperMode: boolean;
   private isWatcherMode: boolean;
@@ -56,9 +60,41 @@ export class PolymarketBot {
     // Initialize CLOB client
     const clobClient = await createClobClient();
 
-    // Initialize services
-    this.marketData = new MarketDataService(clobClient);
-    this.tradeExecutor = new TradeExecutor(clobClient);
+    // Initialize services (use enhanced services if enabled)
+    if (ENV.USE_ENHANCED_SERVICES) {
+      logger.info("Using enhanced services with poly-sdk");
+      this.marketData = new EnhancedMarketDataService(clobClient);
+      await (this.marketData as EnhancedMarketDataService).initialize();
+      
+      // Initialize wallet PnL service for live mode
+      if (!this.isPaperMode && !this.isWatcherMode) {
+        this.walletPnLService = new WalletPnLService();
+        // Pass SDK if available
+        if (this.marketData instanceof EnhancedMarketDataService) {
+          const sdk = (this.marketData as any).sdk;
+          if (sdk) {
+            await this.walletPnLService.initialize(sdk);
+          } else {
+            await this.walletPnLService.initialize();
+          }
+        } else {
+          await this.walletPnLService.initialize();
+        }
+      }
+      
+      if (!this.isPaperMode) {
+        this.tradeExecutor = new EnhancedTradeExecutor(clobClient);
+        await (this.tradeExecutor as EnhancedTradeExecutor).initialize();
+      } else {
+        // Paper mode still uses basic executor (paper trader handles execution)
+        this.tradeExecutor = new TradeExecutor(clobClient);
+      }
+    } else {
+      logger.info("Using basic services (poly-sdk disabled)");
+      this.marketData = new MarketDataService(clobClient);
+      this.tradeExecutor = new TradeExecutor(clobClient);
+    }
+    
     this.paperTrader = new PaperTrader(this.marketData);
     this.strategyManager = new StrategyManager(this.marketData);
 
@@ -127,6 +163,13 @@ export class PolymarketBot {
    */
   getDashboard(): Dashboard | undefined {
     return this.dashboard;
+  }
+
+  /**
+   * Get wallet PnL service (for live trading mode)
+   */
+  getWalletPnLService(): WalletPnLService | undefined {
+    return this.walletPnLService;
   }
 
   /**
@@ -354,6 +397,16 @@ export class PolymarketBot {
       this.dashboard.stop();
     }
 
+    // Stop enhanced services if used
+    if (ENV.USE_ENHANCED_SERVICES) {
+      if (this.marketData instanceof EnhancedMarketDataService) {
+        await this.marketData.stop();
+      }
+      if (this.tradeExecutor instanceof EnhancedTradeExecutor) {
+        await this.tradeExecutor.stop();
+      }
+    }
+
     // Print final stats if in paper mode
     if (this.isPaperMode && !this.isWatcherMode) {
       const stats = this.paperTrader.getStats();
@@ -430,11 +483,14 @@ async function main(): Promise<void> {
 export * from "./interfaces";
 export * from "./strategies";
 export { MarketDataService } from "./services/marketData";
+export { EnhancedMarketDataService } from "./services/enhancedMarketData";
 export { PaperTrader } from "./services/paperTrader";
 export { TradeExecutor } from "./services/tradeExecutor";
+export { EnhancedTradeExecutor } from "./services/enhancedTradeExecutor";
 export { Dashboard } from "./services/dashboard";
 export { default as priceStreamLogger } from "./services/priceStreamLogger";
 export { default as marketTracker } from "./services/marketTracker";
+export * from "./utils/arbitrageUtils";
 
 // Run if called directly
 main();

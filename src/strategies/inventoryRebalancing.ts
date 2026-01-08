@@ -39,6 +39,8 @@ interface MarketState {
 export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
   // State per market (keyed by marketType)
   private marketStates: Map<string, MarketState> = new Map();
+  // Track last low balance warning to avoid spam
+  private lastLowBalanceWarning: number = 0;
 
   // Market types to trade on
   private static readonly MARKET_TYPES = [
@@ -163,6 +165,12 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
     // Check if we have enough balance
     if (this.balance <= this.rebalanceConfig.min_trade_size) {
+      // Log warning if balance is critically low (only log once per minute to avoid spam)
+      const now = Date.now();
+      if (!this.lastLowBalanceWarning || (now - this.lastLowBalanceWarning) > 60000) {
+        this.log(`⚠️  INSUFFICIENT BALANCE: $${this.balance.toFixed(2)} (min: $${this.rebalanceConfig.min_trade_size.toFixed(2)}) - Trading paused`);
+        this.lastLowBalanceWarning = now;
+      }
       return [];
     }
 
