@@ -1635,7 +1635,8 @@ class MarketTracker {
                 }
             }
 
-            // FALLBACK: Try order book prices via HTTP if WebSocket not available
+            // FALLBACK: Always try order book prices via HTTP if WebSocket didn't work
+            // This ensures we get prices even if WebSocket is unavailable
             if (market.assetUp && market.assetDown) {
                 const [priceUpFromBook, priceDownFromBook] = await Promise.all([
                     this.fetchOrderBookPrice(market.assetUp),
@@ -1649,6 +1650,26 @@ class MarketTracker {
                     return; // Successfully got prices from order book
                 }
             }
+            
+            // If we still don't have prices and asset IDs are missing, try one more time to fetch them
+            // This handles cases where asset IDs weren't available initially
+            if ((!market.currentPriceUp || !market.currentPriceDown) && (!market.assetUp || !market.assetDown)) {
+                const fetchedAssets = await this.fetchAssetIdsIfMissing(market);
+                if (fetchedAssets && market.assetUp && market.assetDown) {
+                    // Try order book one more time with newly fetched asset IDs
+                    const [priceUpFromBook, priceDownFromBook] = await Promise.all([
+                        this.fetchOrderBookPrice(market.assetUp),
+                        this.fetchOrderBookPrice(market.assetDown),
+                    ]);
+
+                    if (priceUpFromBook !== null && priceDownFromBook !== null) {
+                        market.currentPriceUp = priceUpFromBook;
+                        market.currentPriceDown = priceDownFromBook;
+                        market.lastPriceUpdate = Date.now();
+                        return; // Successfully got prices from order book
+                    }
+                }
+            }
 
             market.lastPriceUpdate = Date.now();
         } catch (e) {
@@ -1659,15 +1680,17 @@ class MarketTracker {
     /**
      * Fetch current prices for market assets
      * This method is called frequently and uses cached prices when possible
+     * @param force - If true, bypasses throttle and forces immediate fetch
      */
-    private async fetchCurrentPrices(market: MarketStats): Promise<void> {
+    private async fetchCurrentPrices(market: MarketStats, force: boolean = false): Promise<void> {
         const now = Date.now();
 
         // Always fetch if we don't have prices yet, otherwise throttle to 500ms
         // This ensures prices appear immediately when markets are discovered
+        // If force is true, always fetch regardless of throttle
         const hasNoPrices = !market.currentPriceUp || !market.currentPriceDown;
         const isStale = !market.lastPriceUpdate || (now - market.lastPriceUpdate >= 500);
-        const shouldFetchFromAPI = hasNoPrices || isStale;
+        const shouldFetchFromAPI = force || hasNoPrices || isStale;
 
         if (shouldFetchFromAPI) {
             await this.fetchCurrentPricesFromAPI(market);
@@ -1861,9 +1884,20 @@ class MarketTracker {
         }
 
         // Fetch current prices for all active markets (in parallel)
-        // fetchCurrentPrices will handle throttling and force fetch if prices are missing
-        const pricePromises = activeMarkets.map(m => this.fetchCurrentPrices(m));
+        // Force fetch if prices are missing to ensure instant display
+        const pricePromises = activeMarkets.map(m => {
+            const hasNoPrices = !m.currentPriceUp || !m.currentPriceDown;
+            return this.fetchCurrentPrices(m, hasNoPrices); // Force fetch if missing
+        });
         await Promise.allSettled(pricePromises);
+        
+        // If any markets still don't have prices after first attempt, try once more
+        // This ensures prices appear instantly even if first fetch failed
+        const marketsNeedingPrices = activeMarkets.filter(m => !m.currentPriceUp || !m.currentPriceDown);
+        if (marketsNeedingPrices.length > 0) {
+            const retryPromises = marketsNeedingPrices.map(m => this.fetchCurrentPrices(m, true));
+            await Promise.allSettled(retryPromises);
+        }
 
         // Capture closing price snapshot around 2 minutes before market switches to next market
         // This ensures PnL is recorded with prices from ~2 minutes before market switch

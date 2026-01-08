@@ -19,9 +19,7 @@ export class PaperTrader {
   private account: PaperAccount;
   private marketData: MarketDataService;
   private csvFilePath: string;
-  private profitCsvPath: string;
   private csvInitialized: boolean = false;
-  private profitCsvInitialized: boolean = false;
   private csvExporter: CSVExporter;
 
   constructor(marketData: MarketDataService, startingBalance?: number) {
@@ -45,10 +43,8 @@ export class PaperTrader {
     }
     const runId = getRunId();
     this.csvFilePath = path.join(paperDir, `Paper Trades_${runId}.csv`);
-    this.profitCsvPath = path.join(paperDir, `PROFITS_${runId}.csv`);
     this.csvExporter = new CSVExporter(paperDir);
     this.initializeCsv();
-    this.initializeProfitCsv();
 
     logger.paper(`Paper account initialized with $${this.account.balance} USDC`);
   }
@@ -89,110 +85,13 @@ export class PaperTrader {
     }
   }
 
-  private initializeProfitCsv(): void {
-    try {
-      // Enhanced headers with PnL calculation details
-      const headers = [
-        "Market Name",
-        "Time",
-        "Total PnL",
-        "PnL %",
-        "Shares Up",
-        "Shares Down",
-        "Price Up",
-        "Price Down",
-        "Total Cost Basis",
-        "Total Current Value",
-        "Realized PnL",
-        "Unrealized PnL",
-        "PnL Calculation",
-      ].join(",");
-      fs.writeFileSync(this.profitCsvPath, headers + "\n", "utf8");
-      this.profitCsvInitialized = true;
-      logger.info(`Profit summary CSV initialized: ${this.profitCsvPath}`);
-    } catch (error) {
-      logger.error(`Failed to initialize profit CSV: ${error}`);
-    }
-  }
-
   private loggedMarkets: Set<string> = new Set(); // Track markets already logged to prevent duplicates
 
-  /**
-   * Log total PNL for a market when it completes
-   * This logs a single row per market with total PNL across all positions
-   * Uses full market name and prevents duplicate logging
-   */
-  logMarketCompletionPnL(marketName: string, conditionId: string, finalPriceUp?: number, finalPriceDown?: number): void {
-    if (!this.profitCsvInitialized) return;
-
-    // Prevent duplicate logging for the same market
-    if (this.loggedMarkets.has(conditionId)) {
-      return;
-    }
-
-    try {
-      // Find all positions in this market
-      const marketPositions = this.getAllPositions().filter(
-        p => p.conditionId === conditionId
-      );
-
-      if (marketPositions.length === 0) {
-        return; // No positions in this market
-      }
-
-      // Calculate total PNL for all positions in this market
-      let totalPnl = 0;
-      for (const position of marketPositions) {
-        // Determine final price based on outcome
-        let finalPrice = 0;
-        if (position.outcome?.toLowerCase() === 'up' && finalPriceUp !== undefined) {
-          finalPrice = finalPriceUp;
-        } else if (position.outcome?.toLowerCase() === 'down' && finalPriceDown !== undefined) {
-          finalPrice = finalPriceDown;
-        } else {
-          // Fallback to current price or avg price
-          finalPrice = position.currentPrice || position.avgPrice;
-        }
-
-        const invested = position.size * position.avgPrice;
-        const finalValue = position.size * finalPrice;
-        const profitLoss = finalValue - invested;
-        totalPnl += profitLoss;
-      }
-
-      const now = new Date();
-      const time = now.toLocaleTimeString("en-US", { 
-        hour12: true, 
-        hour: "2-digit", 
-        minute: "2-digit",
-        second: "2-digit"
-      });
-
-      // Use full market name (no shortening)
-      const fullMarketName = marketName.trim();
-
-      // Simple row: Market Name, Time, PnL (easy to read)
-      const row = [
-        `"${fullMarketName}"`,
-        time,
-        `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`,
-      ].join(",");
-
-      fs.appendFileSync(this.profitCsvPath, row + "\n", "utf8");
-      
-      // Mark this market as logged to prevent duplicates
-      this.loggedMarkets.add(conditionId);
-      
-      logger.info(`📊 Market completion logged: ${fullMarketName} - PnL: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`);
-    } catch (error) {
-      logger.error(`Failed to write market completion PNL to CSV: ${error}`);
-    }
-  }
 
   /**
    * Log market PnL from dashboard data (captures exactly what dashboard shows)
    * Called 5 seconds before market ends
-   * Now uses enhanced PnL calculator and CSV exporter
+   * Uses enhanced PnL calculator and CSV exporter
    */
   logMarketPnLFromDashboard(
     marketName: string,
@@ -204,8 +103,6 @@ export class PaperTrader {
     priceUp: number,
     priceDown: number
   ): void {
-    if (!this.profitCsvInitialized) return;
-
     // Prevent duplicate logging for the same market
     if (this.loggedMarkets.has(conditionId)) {
       return;
@@ -244,41 +141,13 @@ export class PaperTrader {
       );
 
       if (marketPnL) {
-        // Export using enhanced CSV exporter
+        // Export using enhanced CSV exporter (most recent implementation)
         this.csvExporter.exportMarketPnLSnapshot(
           marketPnL,
           { priceUp, priceDown },
           `PROFITS_${getRunId()}.csv`,
           { append: true, includeHeaders: !this.loggedMarkets.has('headers_written') }
         ).catch(err => logger.error(`Failed to export market PnL: ${err}`));
-
-        // Also write simple row to legacy format for backward compatibility
-        const now = new Date();
-        const time = now.toLocaleTimeString("en-US", {
-          hour12: true,
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit"
-        });
-
-        // Enhanced PnL row with calculation details
-        const row = [
-          `"${marketName.trim()}"`,
-          time,
-          `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`,
-          `${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%`,
-          sharesUp.toFixed(4),
-          sharesDown.toFixed(4),
-          priceUp.toFixed(6),
-          priceDown.toFixed(6),
-          marketPnL.totalCostBasis.toFixed(4),
-          marketPnL.totalCurrentValue.toFixed(4),
-          marketPnL.totalRealizedPnL.toFixed(4),
-          marketPnL.totalUnrealizedPnL.toFixed(4),
-          `"CostBasis=${marketPnL.totalCostBasis.toFixed(4)}, CurrentValue=${marketPnL.totalCurrentValue.toFixed(4)}, Realized=${marketPnL.totalRealizedPnL.toFixed(4)}, Unrealized=${marketPnL.totalUnrealizedPnL.toFixed(4)}"`,
-        ].join(",");
-
-        fs.appendFileSync(this.profitCsvPath, row + "\n", "utf8");
 
         // Mark this market as logged to prevent duplicates
         this.loggedMarkets.add(conditionId);
@@ -415,92 +284,6 @@ export class PaperTrader {
     logger.info(`Balance reset for new market: settled $${totalPositionValue.toFixed(2)} in positions, balance reset from $${balanceAfterSettlement.toFixed(2)} to $${this.account.balance.toFixed(2)}`);
   }
 
-  /**
-   * Log a realized profit/loss to the PROFITS CSV
-   * Called when a position is closed or market ends
-   * @deprecated Use logMarketCompletionPnL for market completion logging
-   */
-  logProfit(
-    marketName: string,
-    side: string,
-    shares: number,
-    avgCost: number,
-    finalPrice: number
-  ): void {
-    if (!this.profitCsvInitialized) return;
-
-    try {
-      const now = new Date();
-      const time = now.toLocaleTimeString("en-US", { hour12: true, hour: "2-digit", minute: "2-digit" });
-      const invested = shares * avgCost;
-      const finalValue = shares * finalPrice;
-      const profitLoss = finalValue - invested;
-
-      // Clean market name (remove dates, keep short)
-      const shortMarket = marketName
-        .replace(/- January \d+.*$/i, "")
-        .replace(/Bitcoin Up or Down/i, "BTC")
-        .replace(/Ethereum Up or Down/i, "ETH")
-        .trim();
-
-      // Simple row: Time, Market, PnL
-      const row = [
-        time,
-        shortMarket,
-        `${profitLoss >= 0 ? '+' : ''}$${profitLoss.toFixed(2)}`,
-      ].join(",");
-
-      fs.appendFileSync(this.profitCsvPath, row + "\n", "utf8");
-    } catch (error) {
-      logger.error(`Failed to write profit to CSV: ${error}`);
-    }
-  }
-
-  /**
-   * Log all current positions' unrealized P&L to the PROFITS CSV
-   * Call this periodically or when you want a snapshot
-   */
-  async logCurrentProfits(): Promise<void> {
-    for (const position of this.account.positions.values()) {
-      const currentPrice = await this.marketData.getMidPrice(position.tokenId);
-      if (currentPrice && position.size > 0) {
-        this.logProfit(
-          position.title || "Unknown",
-          position.outcome || "Unknown",
-          position.size,
-          position.avgPrice,
-          currentPrice
-        );
-      }
-    }
-
-    // Add summary row
-    this.logProfitSummary();
-  }
-
-  /**
-   * Add a summary row to the PROFITS CSV
-   */
-  private logProfitSummary(): void {
-    if (!this.profitCsvInitialized) return;
-
-    try {
-      const stats = this.getStats();
-      const now = new Date();
-      const time = now.toLocaleTimeString("en-US", { hour12: true, hour: "2-digit", minute: "2-digit" });
-
-      // Simple summary row: Time, TOTAL, PnL
-      const row = [
-        time,
-        "TOTAL",
-        `${stats.totalPnL >= 0 ? '+' : ''}$${stats.totalPnL.toFixed(2)}`,
-      ].join(",");
-
-      fs.appendFileSync(this.profitCsvPath, row + "\n", "utf8");
-    } catch (error) {
-      logger.error(`Failed to write profit summary: ${error}`);
-    }
-  }
 
   private writeTradeToCsv(execution: TradeExecution, signal: TradeSignal): void {
     if (!this.csvInitialized) return;

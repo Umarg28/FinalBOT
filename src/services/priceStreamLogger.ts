@@ -246,15 +246,37 @@ class MarketDiscovery {
       const allMarkets: MarketInfo[] = [];
 
       // Fetch hourly markets from tag_slug
+      // Use active=true&closed=false to get current markets
       const hourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&active=true&closed=false&limit=100&order=endDate&ascending=true`;
       const hourlyMarkets = await this.fetchMarketsFromUrl(hourlyUrl);
       allMarkets.push(...hourlyMarkets);
+
+      // Also fetch with active=false to get upcoming markets that haven't started yet
+      // This ensures we can switch to the next market even if it hasn't "started" in the API yet
+      const upcomingHourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&active=false&closed=false&limit=50&order=endDate&ascending=true`;
+      const upcomingHourlyMarkets = await this.fetchMarketsFromUrl(upcomingHourlyUrl);
+      allMarkets.push(...upcomingHourlyMarkets);
+
+      // Also try without active filter to catch markets in transition
+      const allHourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&closed=false&limit=100&order=endDate&ascending=true`;
+      const allHourlyMarkets = await this.fetchMarketsFromUrl(allHourlyUrl);
+      allMarkets.push(...allHourlyMarkets);
 
       // Also fetch hourly markets by slug prefix (backup - API sometimes misses some)
       for (const hourlyPrefix of ['bitcoin-up-or-down', 'ethereum-up-or-down']) {
         const hourlyPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=true&closed=false&limit=20`;
         const prefixMarkets = await this.fetchMarketsFromUrl(hourlyPrefixUrl);
         allMarkets.push(...prefixMarkets);
+        
+        // Also fetch upcoming markets by prefix
+        const upcomingPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=false&closed=false&limit=10`;
+        const upcomingPrefixMarkets = await this.fetchMarketsFromUrl(upcomingPrefixUrl);
+        allMarkets.push(...upcomingPrefixMarkets);
+        
+        // Also try without active filter
+        const allPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&closed=false&limit=20`;
+        const allPrefixMarkets = await this.fetchMarketsFromUrl(allPrefixUrl);
+        allMarkets.push(...allPrefixMarkets);
       }
 
       // Fetch 15m markets
@@ -370,35 +392,58 @@ class MarketDiscovery {
         const bufferMs = is1HourMarket ? 5 * 60 * 1000 : CONFIG.MARKET_SWITCH_BUFFER_MS;
 
         // First pass: find current market (has started) and next market (hasn't started)
-        for (const market of markets) {
+        // Sort markets by start time to ensure we get the right next market
+        const sortedMarkets = [...markets].sort((a, b) => {
+          const aStart = new Date(a.start_time_iso).getTime();
+          const bStart = new Date(b.start_time_iso).getTime();
+          return aStart - bStart;
+        });
+
+        for (const market of sortedMarkets) {
           const startTime = new Date(market.start_time_iso).getTime();
           const endTime = new Date(market.end_date_iso).getTime();
           const timeLeft = endTime - now;
 
+          // Only consider markets that haven't ended yet
           if (endTime > now) {
             if (startTime <= now) {
               // Market has started
               if (!current) {
                 current = market;
-                // Check if this market is about to end
-                if (timeLeft < bufferMs) {
+                // Check if this market is about to end or has ended
+                if (timeLeft < bufferMs || timeLeft <= 0) {
                   expiringMarket = market;
                 }
               }
             } else {
               // Market hasn't started yet (future market) - this is the next market
-              if (!next) {
+              // Only set as next if it's the earliest future market
+              if (!next || new Date(market.start_time_iso).getTime() < new Date(next.start_time_iso).getTime()) {
                 next = market;
               }
             }
           }
         }
 
-        // If current market is about to end (within buffer time) and we have a next market, switch early
+        // If current market is about to end (within buffer time) or has ended, and we have a next market, switch
         if (expiringMarket && next) {
-          log('info', `[${marketType}] Current market ending soon (${Math.floor((new Date(expiringMarket.end_date_iso).getTime() - now) / 1000 / 60)}m left), switching to next: ${next.question}`);
+          const timeLeft = new Date(expiringMarket.end_date_iso).getTime() - now;
+          const minutesLeft = Math.floor(timeLeft / 1000 / 60);
+          if (timeLeft <= 0) {
+            log('info', `[${marketType}] Current market has ended, switching to next: ${next.question}`);
+          } else {
+            log('info', `[${marketType}] Current market ending soon (${minutesLeft}m left), switching to next: ${next.question}`);
+          }
           current = next;
           next = null;
+        } else if (!current && next) {
+          // No current market found, but we have a next market - use it (market might have just ended)
+          log('info', `[${marketType}] No current market found, using next market: ${next.question}`);
+          current = next;
+          next = null;
+        } else if (expiringMarket && !next) {
+          // Current market has ended but no next market found - log warning
+          log('warn', `[${marketType}] Current market has ended but no next market found: ${expiringMarket.question}`);
         }
 
         if (current) {
@@ -420,11 +465,31 @@ class MarketDiscovery {
       if (attempt < maxRetries) {
         const missing = CONFIG.MARKET_SLUG_PREFIXES.filter(t => !this.currentMarkets.has(t));
         log('warn', `Only ${this.currentMarkets.size}/4 markets found (missing: ${missing.join(', ')}). Retrying in 2s... (attempt ${attempt}/${maxRetries})`);
+        
+        // Log what markets were found in the API for debugging
+        const foundMarketTypes = Array.from(marketsByType.keys());
+        const foundButNotSelected: string[] = [];
+        for (const [marketType, markets] of marketsByType.entries()) {
+          if (!this.currentMarkets.has(marketType) && markets.length > 0) {
+            foundButNotSelected.push(`${marketType} (${markets.length} found but not selected)`);
+          }
+        }
+        if (foundButNotSelected.length > 0) {
+          log('debug', `Markets found in API but not selected: ${foundButNotSelected.join(', ')}`);
+        }
+        
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
 
-    log('warn', `Could only find ${this.currentMarkets.size}/4 markets after ${maxRetries} attempts`);
+    const missing = CONFIG.MARKET_SLUG_PREFIXES.filter(t => !this.currentMarkets.has(t));
+    log('warn', `Could only find ${this.currentMarkets.size}/4 markets after ${maxRetries} attempts (missing: ${missing.join(', ')})`);
+    
+    // If we're missing 1-hour markets, log more details
+    if (missing.includes('bitcoin-up-or-down') || missing.includes('ethereum-up-or-down')) {
+      log('warn', '1-hour markets not found - they may not be available in the API yet. The bot will continue checking.');
+    }
+    
     return this.currentMarkets;
   }
 
