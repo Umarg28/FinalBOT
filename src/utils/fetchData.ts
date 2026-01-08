@@ -5,7 +5,8 @@ export async function fetchData<T>(url: string): Promise<T> {
     const response = await axios.get<T>(url);
     return response.data;
   } catch (error) {
-    console.error(`Error fetching data from ${url}:`, error);
+    const logger = require('./logger').default;
+    logger.error(`Error fetching data from ${url}:`, error);
     throw error;
   }
 }
@@ -15,7 +16,8 @@ export async function postData<T, R>(url: string, data: T): Promise<R> {
     const response = await axios.post<R>(url, data);
     return response.data;
   } catch (error) {
-    console.error(`Error posting data to ${url}:`, error);
+    const logger = require('./logger').default;
+    logger.error(`Error posting data to ${url}:`, error);
     throw error;
   }
 }

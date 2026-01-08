@@ -181,10 +181,29 @@ function log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?:
   if (LOG_LEVELS[level] >= LOG_LEVELS[CONFIG.LOG_LEVEL]) {
     const timestamp = new Date().toISOString();
     const prefix = `[${timestamp}] [PRICE] [${level.toUpperCase()}]`;
+    // Use logger instead of console for file logging
+    const logger = require('../utils/logger').default;
     if (data !== undefined) {
-      console.log(`${prefix} ${message}`, data);
+      const logMessage = `${message} ${JSON.stringify(data)}`;
+      if (level === 'error') {
+        logger.error(`[PRICE] ${logMessage}`);
+      } else if (level === 'warn') {
+        logger.warn(`[PRICE] ${logMessage}`);
+      } else if (level === 'debug') {
+        logger.debug(`[PRICE] ${logMessage}`);
+      } else {
+        logger.info(`[PRICE] ${logMessage}`);
+      }
     } else {
-      console.log(`${prefix} ${message}`);
+      if (level === 'error') {
+        logger.error(`[PRICE] ${message}`);
+      } else if (level === 'warn') {
+        logger.warn(`[PRICE] ${message}`);
+      } else if (level === 'debug') {
+        logger.debug(`[PRICE] ${message}`);
+      } else {
+        logger.info(`[PRICE] ${message}`);
+      }
     }
   }
 }
@@ -344,23 +363,42 @@ class MarketDiscovery {
         const markets = marketsByType.get(marketType) || [];
         let current: MarketInfo | null = null;
         let next: MarketInfo | null = null;
+        let expiringMarket: MarketInfo | null = null;
 
+        // For 1-hour markets, use 5-minute buffer; for 15-minute markets, use 1-minute buffer
+        const is1HourMarket = marketType === 'bitcoin-up-or-down' || marketType === 'ethereum-up-or-down';
+        const bufferMs = is1HourMarket ? 5 * 60 * 1000 : CONFIG.MARKET_SWITCH_BUFFER_MS;
+
+        // First pass: find current market (has started) and next market (hasn't started)
         for (const market of markets) {
           const startTime = new Date(market.start_time_iso).getTime();
           const endTime = new Date(market.end_date_iso).getTime();
+          const timeLeft = endTime - now;
 
           if (endTime > now) {
             if (startTime <= now) {
-              if (!current) current = market;
-            } else {
-              if (current && !next) {
-                next = market;
-                break;
-              } else if (!current) {
+              // Market has started
+              if (!current) {
                 current = market;
+                // Check if this market is about to end
+                if (timeLeft < bufferMs) {
+                  expiringMarket = market;
+                }
+              }
+            } else {
+              // Market hasn't started yet (future market) - this is the next market
+              if (!next) {
+                next = market;
               }
             }
           }
+        }
+
+        // If current market is about to end (within buffer time) and we have a next market, switch early
+        if (expiringMarket && next) {
+          log('info', `[${marketType}] Current market ending soon (${Math.floor((new Date(expiringMarket.end_date_iso).getTime() - now) / 1000 / 60)}m left), switching to next: ${next.question}`);
+          current = next;
+          next = null;
         }
 
         if (current) {
@@ -420,7 +458,13 @@ class MarketDiscovery {
     Array.from(this.currentMarkets.entries()).forEach(([marketType, market]) => {
       const endTime = new Date(market.end_date_iso).getTime();
       const timeLeft = endTime - now;
-      if (timeLeft < CONFIG.MARKET_SWITCH_BUFFER_MS || timeLeft < 0) {
+      
+      // For 1-hour markets, check earlier (5 minutes before end) to ensure smooth transition
+      // For 15-minute markets, use the default buffer
+      const is1HourMarket = marketType === 'bitcoin-up-or-down' || marketType === 'ethereum-up-or-down';
+      const bufferMs = is1HourMarket ? 5 * 60 * 1000 : CONFIG.MARKET_SWITCH_BUFFER_MS; // 5 min for 1h, 1 min for 15m
+      
+      if (timeLeft < bufferMs || timeLeft < 0) {
         needsSwitch.push(marketType);
       }
     });
@@ -811,8 +855,10 @@ class PriceStreamLogger {
     // Track last refresh time to force periodic refresh
     let lastForceRefresh = Date.now();
     const FORCE_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // Force refresh every 5 minutes
+    const FAST_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds when markets need switching
+    let currentCheckInterval = CONFIG.MARKET_CHECK_INTERVAL_MS;
 
-    this.marketCheckInterval = setInterval(async () => {
+    const checkMarkets = async () => {
       if (this.isShuttingDown) return;
 
       const now = Date.now();
@@ -820,18 +866,37 @@ class PriceStreamLogger {
       const anyEnded = this.marketDiscovery.hasAnyMarketEnded();
       const timeSinceRefresh = now - lastForceRefresh;
 
+      // Adjust check interval based on whether markets need switching
+      const shouldCheckFrequently = needsSwitch.length > 0;
+      const newCheckInterval = shouldCheckFrequently ? FAST_CHECK_INTERVAL_MS : CONFIG.MARKET_CHECK_INTERVAL_MS;
+      
+      // If interval changed, restart with new interval
+      if (newCheckInterval !== currentCheckInterval) {
+        currentCheckInterval = newCheckInterval;
+        this.stopMarketCheckInterval();
+        this.marketCheckInterval = setInterval(checkMarkets, currentCheckInterval);
+        // Return early to avoid executing rest of callback with old interval
+        return;
+      }
+
       // Refresh if:
-      // 1. Any market needs switching (< 60s left)
+      // 1. Any market needs switching (< buffer time left, or < 5 min for 1h markets)
       // 2. Any market has ended
       // 3. It's been more than 5 minutes since last refresh (force periodic refresh)
       if (needsSwitch.length > 0 || anyEnded || timeSinceRefresh > FORCE_REFRESH_INTERVAL_MS) {
-        if (timeSinceRefresh > FORCE_REFRESH_INTERVAL_MS) {
+        if (needsSwitch.length > 0) {
+          log('info', `Market(s) need switching: ${needsSwitch.join(', ')}`);
+        } else if (anyEnded) {
+          log('info', 'Market(s) have ended, refreshing...');
+        } else if (timeSinceRefresh > FORCE_REFRESH_INTERVAL_MS) {
           log('info', 'Periodic market refresh (every 5 min)...');
         }
         lastForceRefresh = now;
         await this.discoverAndConnect();
       }
-    }, CONFIG.MARKET_CHECK_INTERVAL_MS);
+    };
+
+    this.marketCheckInterval = setInterval(checkMarkets, currentCheckInterval);
   }
 
   private stopMarketCheckInterval(): void {
@@ -1365,7 +1430,8 @@ const priceStreamLogger = new PriceStreamLogger();
 
 // Auto-start when imported (will run in background)
 priceStreamLogger.start().catch(err => {
-  console.error('Failed to start price stream:', err);
+  const logger = require('../utils/logger').default;
+  logger.error('Failed to start price stream:', err);
 });
 
 export default priceStreamLogger;

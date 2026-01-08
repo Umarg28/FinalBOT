@@ -1,0 +1,9 @@
+Market Name,Time,Total PnL,PnL %,Shares Up,Shares Down,Price Up,Price Down,Total Cost Basis,Total Current Value,Realized PnL,Unrealized PnL,PnL Calculation
+"Ethereum Up or Down - January 8, 12:30PM-12:45PM ET",05:29:56 PM,$-19.47,-7.64%,475.9800,230.7100,0.010000,0.999500,274.7809,260.9830,0.0000,-13.7979,"CostBasis=274.7809, CurrentValue=260.9830, Realized=0.0000, Unrealized=-13.7979"
+"Bitcoin Up or Down - January 8, 12:30PM-12:45PM ET",05:29:57 PM,+$16.62,+1.27%,1366.5800,1327.3600,0.001000,0.999500,1340.0155,1356.5973,0.0000,16.5818,"CostBasis=1340.0155, CurrentValue=1356.5973, Realized=0.0000, Unrealized=16.5818"
+"Bitcoin Up or Down - January 8, 12PM ET",05:59:55 PM,$-3.42,-0.11%,3206.9100,4092.3600,0.999500,0.010000,33.1128,32.3905,0.0000,-0.7223,"CostBasis=33.1128, CurrentValue=32.3905, Realized=0.0000, Unrealized=-0.7223"
+"Ethereum Up or Down - January 8, 12PM ET",05:59:55 PM,+$42.84,+1.97%,2218.4400,3033.6100,0.999500,0.001000,170.7913,168.8198,0.0000,-1.9715,"CostBasis=170.7913, CurrentValue=168.8198, Realized=0.0000, Unrealized=-1.9715"
+"Ethereum Up or Down - January 8, 1PM ET",06:59:55 PM,$-22.57,-4.94%,1310.0400,395.4200,0.030000,0.999500,63.9619,66.3897,0.0000,2.4278,"CostBasis=63.9619, CurrentValue=66.3897, Realized=0.0000, Unrealized=2.4278"
+"Bitcoin Up or Down - January 8, 1PM ET",06:59:55 PM,$-30.80,-5.34%,1861.2500,527.1000,0.010000,0.999500,54.5366,50.5486,0.0000,-3.9880,"CostBasis=54.5366, CurrentValue=50.5486, Realized=0.0000, Unrealized=-3.9880"
+"Ethereum Up or Down - January 8, 2PM ET",07:59:55 PM,$-3.00,-0.23%,1766.8900,1281.3900,0.005500,0.994500,202.5307,197.7476,0.0000,-4.7831,"CostBasis=202.5307, CurrentValue=197.7476, Realized=0.0000, Unrealized=-4.7831"
+"Bitcoin Up or Down - January 8, 2PM ET",07:59:55 PM,+$34.67,+2.32%,1490.7400,1522.9200,0.010000,0.996000,842.4670,876.9311,0.0000,34.4641,"CostBasis=842.4670, CurrentValue=876.9311, Realized=0.0000, Unrealized=34.4641"

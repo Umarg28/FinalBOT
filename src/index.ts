@@ -185,8 +185,9 @@ export class PolymarketBot {
    * Execute a single trade signal
    */
   async executeTrade(signal: TradeSignal): Promise<void> {
-    if (this.isPaperMode) {
-      const execution = await this.paperTrader.executeOrder(signal);
+    try {
+      if (this.isPaperMode) {
+        const execution = await this.paperTrader.executeOrder(signal);
 
       // Report filled paper trades to marketTracker for dashboard display
       if (execution.status === "filled") {
@@ -225,31 +226,50 @@ export class PolymarketBot {
     } else {
       await this.tradeExecutor.executeWithRetry(signal);
     }
+    } catch (error) {
+      logger.error(`Error executing trade signal (${signal.strategyName}):`, error);
+      throw error; // Re-throw to be caught by outer handler
+    }
   }
 
   /**
    * Run one cycle of strategy analysis and execution
    */
   async runCycle(): Promise<void> {
-    // Update strategy context
-    const positions = this.isPaperMode
-      ? this.paperTrader.getAllPositions()
-      : []; // In live mode, fetch from API
+    try {
+      // Update strategy context
+      const positions = this.isPaperMode
+        ? this.paperTrader.getAllPositions()
+        : []; // In live mode, fetch from API
 
-    const balance = this.isPaperMode
-      ? this.paperTrader.getBalance()
-      : 0; // In live mode, fetch from chain
+      const balance = this.isPaperMode
+        ? this.paperTrader.getBalance()
+        : 0; // In live mode, fetch from chain
 
-    this.strategyManager.updateContext(positions, balance);
+      this.strategyManager.updateContext(positions, balance);
 
-    // Run all strategies
-    const results = await this.strategyManager.runStrategies();
+      // Run all strategies
+      const results = await this.strategyManager.runStrategies();
 
-    // Execute signals
-    for (const result of results) {
-      for (const signal of result.signals) {
-        await this.executeTrade(signal);
+      // Log cycle summary for debugging
+      const totalSignals = results.reduce((sum, r) => sum + r.signals.length, 0);
+      if (totalSignals > 0) {
+        logger.debug(`Cycle: ${results.length} strategy(s) generated ${totalSignals} signal(s)`);
       }
+
+      // Execute signals
+      for (const result of results) {
+        for (const signal of result.signals) {
+          try {
+            await this.executeTrade(signal);
+          } catch (error) {
+            logger.error(`Error executing trade signal from ${result.strategy}:`, error);
+          }
+        }
+      }
+    } catch (error) {
+      logger.error("Error in runCycle:", error);
+      throw error; // Re-throw to be caught by outer handler
     }
   }
 
@@ -277,7 +297,7 @@ export class PolymarketBot {
         try {
           await marketTracker.displayStats();
         } catch (error) {
-          // Silently handle display errors
+          logger.error("MarketTracker display error:", error);
         }
         await this.sleep(ENV.DASHBOARD_UPDATE_INTERVAL);
       }
@@ -359,6 +379,11 @@ export class PolymarketBot {
 
     while (this.isRunning) {
       try {
+        // In paper mode, check and reset balance if too low (before running cycle)
+        if (this.isPaperMode && this.paperTrader) {
+          this.paperTrader.checkAndResetBalanceIfLow();
+        }
+
         await this.runCycle();
 
         // In paper mode, periodically display the dashboard
@@ -369,7 +394,7 @@ export class PolymarketBot {
               await marketTracker.displayStats();
               lastDashboardUpdate = now;
             } catch (error) {
-              // Silently handle display errors
+              logger.error("Dashboard display error:", error);
             }
           }
         }
@@ -387,6 +412,7 @@ export class PolymarketBot {
    */
   async stop(): Promise<void> {
     logger.info("Stopping bot...");
+    logger.closeLogFile();
     this.isRunning = false;
 
     // Stop config file watcher
@@ -407,7 +433,7 @@ export class PolymarketBot {
       }
     }
 
-    // Print final stats if in paper mode
+    // Print final stats and generate formatted PnL report if in paper mode
     if (this.isPaperMode && !this.isWatcherMode) {
       const stats = this.paperTrader.getStats();
       logger.info("");
@@ -421,6 +447,14 @@ export class PolymarketBot {
       logger.info(`Win Rate:         ${stats.winRate.toFixed(1)}%`);
       logger.info(`Open Positions:   ${stats.positionCount}`);
       logger.info("=".repeat(50));
+      
+      // Generate formatted PnL report
+      try {
+        logger.info("Generating formatted PnL report...");
+        this.paperTrader.generateFormattedPnLReport();
+      } catch (error) {
+        logger.error(`Failed to generate PnL report: ${error}`);
+      }
     }
 
     await disconnectDB();
@@ -439,11 +473,13 @@ async function main(): Promise<void> {
   // Handle graceful shutdown
   process.on("SIGINT", async () => {
     await bot.stop();
+    logger.closeLogFile();
     process.exit(0);
   });
 
   process.on("SIGTERM", async () => {
     await bot.stop();
+    logger.closeLogFile();
     process.exit(0);
   });
 
@@ -464,7 +500,8 @@ async function main(): Promise<void> {
           enabled: true,
           parameters: {}, // Config loaded from inventory-rebalance-config.yaml
         },
-        bot.getMarketData()
+        bot.getMarketData(),
+        bot.getPaperTrader() // Pass paperTrader for balance reset on new market windows
       );
       bot.addStrategy(inventoryRebalancingStrategy);
       logger.info("Loaded Inventory-Balanced Rebalancing Strategy (config: inventory-rebalance-config.yaml)");

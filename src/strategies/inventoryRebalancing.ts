@@ -41,6 +41,8 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
   private marketStates: Map<string, MarketState> = new Map();
   // Track last low balance warning to avoid spam
   private lastLowBalanceWarning: number = 0;
+  // Optional paper trader for balance reset on new market windows
+  private paperTrader?: any;
 
   // Market types to trade on
   private static readonly MARKET_TYPES = [
@@ -50,8 +52,9 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     'ethereum-up-or-down'
   ];
 
-  constructor(config: any, marketData: MarketDataService) {
+  constructor(config: any, marketData: MarketDataService, paperTrader?: any) {
     super(config, marketData);
+    this.paperTrader = paperTrader;
   }
 
   /**
@@ -111,7 +114,7 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
       // If token ID changed, update market state and use new token IDs
       if (upToken && upToken.token_id !== yesTokenId) {
         this.log(`[${this.getShortName(marketType)}] Market window changed - updating...`);
-        this.updateMarketState(marketType, wsMarket);
+        await this.updateMarketState(marketType, wsMarket);
         // Use the NEW token IDs for price lookup
         yesTokenId = upToken.token_id;
         noTokenId = downToken?.token_id || noTokenId;
@@ -199,9 +202,15 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
       closeSizeMultiplier
     );
 
-    // Debug: Log when no signals generated (occasionally to avoid spam)
-    if (signals.length === 0 && Math.random() < 0.05) { // 5% chance to log
-      this.log(`[${this.getShortName(marketType)}] No signals: inventory=$${totalInventoryValue.toFixed(2)}, ratio=${(yesRatio * 100).toFixed(1)}%, target=${(targetRatio * 100).toFixed(1)}%, balance=$${this.balance.toFixed(2)}`);
+    // Debug: Log when no signals generated (always log first time, then occasionally)
+    if (signals.length === 0) {
+      const debugKey = `no_signals_${marketType}`;
+      const lastDebug = (this as any)[debugKey] || 0;
+      const now = Date.now();
+      if (lastDebug === 0 || (now - lastDebug) > 30000) { // Log first time, then every 30 seconds
+        this.log(`[${this.getShortName(marketType)}] No signals: inventory=$${totalInventoryValue.toFixed(2)}, ratio=${(yesRatio * 100).toFixed(1)}%, target=${(targetRatio * 100).toFixed(1)}%, balance=$${this.balance.toFixed(2)}, cooldown=${timeSinceLastRebalance.toFixed(1)}s`);
+        (this as any)[debugKey] = now;
+      }
     }
 
     if (signals.length > 0) {
@@ -264,7 +273,7 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
         );
 
         if (upToken && upToken.token_id !== existingState.yesTokenId) {
-          this.updateMarketState(marketType, wsMarket);
+          await this.updateMarketState(marketType, wsMarket);
         }
       }
     }
@@ -314,7 +323,7 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
   /**
    * Update state when market window changes
    */
-  private updateMarketState(marketType: string, wsMarket: any): void {
+  private async updateMarketState(marketType: string, wsMarket: any): Promise<void> {
     const upToken = wsMarket.tokens.find((t: any) =>
       t.outcome?.toLowerCase() === 'up' || t.outcome?.toLowerCase() === 'yes'
     );
@@ -354,6 +363,12 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
     this.marketStates.set(marketType, state);
     this.log(`[${this.getShortName(marketType)}] Updated to new window: ${wsMarket.question}`);
+    
+    // Reset paper trading balance when a new market window is detected
+    // This settles all open positions at current market prices before resetting
+    if (this.paperTrader && typeof this.paperTrader.resetBalanceForNewMarket === 'function') {
+      await this.paperTrader.resetBalanceForNewMarket();
+    }
   }
 
   /**
@@ -482,11 +497,21 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     if (totalInventory > 0) {
       yesDeviation = currentYesRatio - targetRatio;  // Positive = overweight
       noDeviation = (1 - currentYesRatio) - (1 - targetRatio);  // Positive = overweight
+      
+      // Check if deviation is within rebalance_band - if so, don't trade (unless no inventory)
+      const absYesDeviation = Math.abs(yesDeviation);
+      if (absYesDeviation < this.rebalanceConfig.rebalance_band) {
+        // Within band - but still allow small trades to maintain inventory
+        // Set small deviation to allow minimal trading
+        yesDeviation = absYesDeviation < 0.001 ? -this.rebalanceConfig.rebalance_band * 0.5 : yesDeviation;
+        noDeviation = absYesDeviation < 0.001 ? -this.rebalanceConfig.rebalance_band * 0.5 : noDeviation;
+      }
     } else {
       // No inventory: Force deviation to trigger initial inventory building
-      // Set small negative deviation to allow building both sides
-      yesDeviation = -this.rebalanceConfig.rebalance_band * 0.1;  // Small negative to trigger trades
-      noDeviation = -this.rebalanceConfig.rebalance_band * 0.1;
+      // Set deviation well outside rebalance_band to force trades
+      // Use max_skew_ratio to ensure full weight (1.0) for both sides
+      yesDeviation = -this.rebalanceConfig.max_skew_ratio * 0.5;  // Force full weight (1.0)
+      noDeviation = -this.rebalanceConfig.max_skew_ratio * 0.5;
     }
 
     // Calculate weight multipliers based on deviation
@@ -513,6 +538,10 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     if (upTradeAmount >= this.rebalanceConfig.min_trade_size && remainingBalance >= upTradeAmount) {
       const tradeSize = upTradeAmount / yesPrice;
       if (tradeSize >= 0.01) {
+        // Debug: Log trade size calculation occasionally
+        if (Math.random() < 0.1) { // 10% chance
+          this.log(`[${this.getShortName(marketType)}] UP trade: amount=$${upTradeAmount.toFixed(2)}, size=${tradeSize.toFixed(2)}, weight=${yesWeight.toFixed(2)}, boost=${upBoost.toFixed(2)}`);
+        }
         const tradePrice = this.calculateOrderPrice(yesPrice, "BUY");
         signals.push(this.createBuySignal(market, yesTokenId, tradePrice, Math.floor(tradeSize * 100) / 100, {
           rebalance: true,

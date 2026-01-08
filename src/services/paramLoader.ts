@@ -164,7 +164,8 @@ class ParameterLoader {
     loadParams(): ParameterFile {
         try {
             if (!fs.existsSync(this.paramsPath)) {
-                console.warn(`Parameter file not found: ${this.paramsPath}, using defaults`);
+                const logger = require('../utils/logger').default;
+                logger.warn(`Parameter file not found: ${this.paramsPath}, using defaults`);
                 return this.getDefaultParams();
             }
 
@@ -187,7 +188,8 @@ class ParameterLoader {
             this.params = normalized;
             return normalized;
         } catch (error) {
-            console.error(`Error loading parameters from ${this.paramsPath}:`, error);
+            const logger = require('../utils/logger').default;
+            logger.error(`Error loading parameters from ${this.paramsPath}:`, error);
             return this.getDefaultParams();
         }
     }
@@ -366,18 +368,22 @@ class ParameterLoader {
                         try {
                             listener(newParams);
                         } catch (error) {
-                            console.error('Error in parameter reload listener:', error);
+                            const logger = require('../utils/logger').default;
+                            logger.error('Error in parameter reload listener:', error);
                         }
                     });
 
-                    console.log(`Parameters reloaded from ${this.paramsPath}`);
+                    const logger = require('../utils/logger').default;
+                    logger.info(`Parameters reloaded from ${this.paramsPath}`);
                 }
             } catch (error) {
-                console.error('Error checking parameter file:', error);
+                const logger = require('../utils/logger').default;
+                logger.error('Error checking parameter file:', error);
             }
         }, pollIntervalMs);
 
-        console.log(`Hot-reload started for ${this.paramsPath} (polling every ${pollIntervalMs}ms)`);
+        const logger = require('../utils/logger').default;
+        logger.info(`Hot-reload started for ${this.paramsPath} (polling every ${pollIntervalMs}ms)`);
     }
 
     /**

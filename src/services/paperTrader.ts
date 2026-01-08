@@ -71,6 +71,15 @@ export class PaperTrader {
         "Balance After",
         "Strategy",
         "Status",
+        // PnL Calculation Details
+        "Position Size Before",
+        "Position Size After",
+        "Avg Price Before",
+        "Avg Price After",
+        "Cost Basis",
+        "Current Value",
+        "Realized PnL",
+        "PnL Calculation",
       ].join(",");
       fs.writeFileSync(this.csvFilePath, headers + "\n", "utf8");
       this.csvInitialized = true;
@@ -82,8 +91,22 @@ export class PaperTrader {
 
   private initializeProfitCsv(): void {
     try {
-      // Simple headers: Market Name, Time, PnL (easy to read format)
-      const headers = ["Market Name", "Time", "PnL"].join(",");
+      // Enhanced headers with PnL calculation details
+      const headers = [
+        "Market Name",
+        "Time",
+        "Total PnL",
+        "PnL %",
+        "Shares Up",
+        "Shares Down",
+        "Price Up",
+        "Price Down",
+        "Total Cost Basis",
+        "Total Current Value",
+        "Realized PnL",
+        "Unrealized PnL",
+        "PnL Calculation",
+      ].join(",");
       fs.writeFileSync(this.profitCsvPath, headers + "\n", "utf8");
       this.profitCsvInitialized = true;
       logger.info(`Profit summary CSV initialized: ${this.profitCsvPath}`);
@@ -238,10 +261,21 @@ export class PaperTrader {
           second: "2-digit"
         });
 
+        // Enhanced PnL row with calculation details
         const row = [
           `"${marketName.trim()}"`,
           time,
           `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`,
+          `${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%`,
+          sharesUp.toFixed(4),
+          sharesDown.toFixed(4),
+          priceUp.toFixed(6),
+          priceDown.toFixed(6),
+          marketPnL.totalCostBasis.toFixed(4),
+          marketPnL.totalCurrentValue.toFixed(4),
+          marketPnL.totalRealizedPnL.toFixed(4),
+          marketPnL.totalUnrealizedPnL.toFixed(4),
+          `"CostBasis=${marketPnL.totalCostBasis.toFixed(4)}, CurrentValue=${marketPnL.totalCurrentValue.toFixed(4)}, Realized=${marketPnL.totalRealizedPnL.toFixed(4)}, Unrealized=${marketPnL.totalUnrealizedPnL.toFixed(4)}"`,
         ].join(",");
 
         fs.appendFileSync(this.profitCsvPath, row + "\n", "utf8");
@@ -313,6 +347,72 @@ export class PaperTrader {
     this.account.balance = this.account.startingBalance;
 
     logger.paper(`Market settled: ${positionsToSettle.length} positions, total payout: $${totalPayout.toFixed(2)}, previous balance: $${previousBalance.toFixed(2)}, reset to: $${this.account.balance.toFixed(2)}`);
+  }
+
+  /**
+   * Check and reset balance if it's too low (for continuous trading)
+   * This allows trading to continue even if balance is depleted before market close
+   */
+  checkAndResetBalanceIfLow(): void {
+    const minBalanceThreshold = this.account.startingBalance * 0.01; // 1% of starting balance
+    
+    if (this.account.balance < minBalanceThreshold) {
+      const previousBalance = this.account.balance;
+      this.account.balance = this.account.startingBalance;
+      logger.paper(`⚠️  Balance too low ($${previousBalance.toFixed(2)}), resetting to starting balance: $${this.account.balance.toFixed(2)}`);
+      logger.info(`Balance reset: $${previousBalance.toFixed(2)} → $${this.account.balance.toFixed(2)}`);
+    }
+  }
+
+  /**
+   * Reset balance to starting balance when a new market window starts
+   * This ensures each market window starts with a fresh balance
+   * First settles all open positions at current market prices
+   */
+  async resetBalanceForNewMarket(): Promise<void> {
+    const previousBalance = this.account.balance;
+    let totalPositionValue = 0;
+    const positionsToSettle: Position[] = [];
+
+    // Collect all open positions and calculate their current value
+    for (const [tokenId, position] of this.account.positions.entries()) {
+      try {
+        const currentPrice = await this.marketData.getMidPrice(tokenId);
+        if (currentPrice !== null) {
+          const positionValue = currentPrice * position.size;
+          totalPositionValue += positionValue;
+          positionsToSettle.push(position);
+          
+          logger.paper(`Settling position for new market: ${position.outcome} ${position.size.toFixed(2)} shares @ $${currentPrice.toFixed(4)} = $${positionValue.toFixed(2)}`);
+        } else {
+          // If we can't get current price, use average price as fallback
+          const fallbackValue = position.avgPrice * position.size;
+          totalPositionValue += fallbackValue;
+          positionsToSettle.push(position);
+          logger.paper(`Settling position (no current price): ${position.outcome} ${position.size.toFixed(2)} shares @ $${position.avgPrice.toFixed(4)} = $${fallbackValue.toFixed(2)}`);
+        }
+      } catch (error) {
+        // If price fetch fails, use average price as fallback
+        const fallbackValue = position.avgPrice * position.size;
+        totalPositionValue += fallbackValue;
+        positionsToSettle.push(position);
+        logger.paper(`Settling position (error fetching price): ${position.outcome} ${position.size.toFixed(2)} shares @ $${position.avgPrice.toFixed(4)} = $${fallbackValue.toFixed(2)}`);
+      }
+    }
+
+    // Remove all settled positions
+    for (const position of positionsToSettle) {
+      this.account.positions.delete(position.tokenId);
+    }
+
+    // Add position values to balance
+    const balanceAfterSettlement = previousBalance + totalPositionValue;
+    
+    // Reset balance to starting balance
+    this.account.balance = this.account.startingBalance;
+    
+    logger.paper(`🔄 New market window detected - settled ${positionsToSettle.length} position(s) worth $${totalPositionValue.toFixed(2)}, balance: $${previousBalance.toFixed(2)} → $${balanceAfterSettlement.toFixed(2)} → $${this.account.balance.toFixed(2)}`);
+    logger.info(`Balance reset for new market: settled $${totalPositionValue.toFixed(2)} in positions, balance reset from $${balanceAfterSettlement.toFixed(2)} to $${this.account.balance.toFixed(2)}`);
   }
 
   /**
@@ -412,6 +512,45 @@ export class PaperTrader {
       const market = (signal.metadata?.title as string) || "Unknown";
       const outcome = (signal.metadata?.outcome as string) || "Unknown";
 
+      // Get position details for PnL calculation logging
+      // Use positionBefore stored in execution (captured before position update)
+      const positionBefore = (execution as any).positionBefore || { size: 0, avgPrice: 0 };
+      const positionAfter = this.account.positions.get(signal.tokenId);
+      
+      // Position state
+      const positionSizeBefore = positionBefore.size || 0;
+      const avgPriceBefore = positionBefore.avgPrice || 0;
+      const positionSizeAfter = positionAfter ? positionAfter.size : 0;
+      const avgPriceAfter = positionAfter ? positionAfter.avgPrice : 0;
+
+      // Calculate PnL details
+      let realizedPnl = 0;
+      let costBasis = 0;
+      let currentValue = 0;
+      let pnlCalculation = "";
+
+      if (signal.side === "BUY") {
+        // BUY trade details
+        costBasis = execution.executedSize * execution.executedPrice;
+        currentValue = costBasis; // Same as cost for new position
+        pnlCalculation = `BUY: costBasis=${costBasis.toFixed(4)} (${execution.executedSize.toFixed(4)}*${execution.executedPrice.toFixed(6)})`;
+        
+        if (positionSizeBefore > 0) {
+          const oldCostBasis = positionSizeBefore * avgPriceBefore;
+          const newCostBasis = costBasis;
+          const totalCostBasis = oldCostBasis + newCostBasis;
+          pnlCalculation += `, weightedAvg=(${oldCostBasis.toFixed(4)}+${newCostBasis.toFixed(4)})/${positionSizeAfter.toFixed(4)}=${avgPriceAfter.toFixed(6)}`;
+        } else {
+          pnlCalculation += `, newPosition avgPrice=${avgPriceAfter.toFixed(6)}`;
+        }
+      } else {
+        // SELL trade details
+        costBasis = execution.executedSize * avgPriceBefore; // Cost basis of sold shares
+        currentValue = execution.executedSize * execution.executedPrice; // Proceeds from sale
+        realizedPnl = currentValue - costBasis;
+        pnlCalculation = `SELL: costBasis=${costBasis.toFixed(4)} (${execution.executedSize.toFixed(4)}*${avgPriceBefore.toFixed(6)}), proceeds=${currentValue.toFixed(4)} (${execution.executedSize.toFixed(4)}*${execution.executedPrice.toFixed(6)}), realizedPnl=${realizedPnl.toFixed(4)} (${currentValue.toFixed(4)}-${costBasis.toFixed(4)})`;
+      }
+
       const row = [
         timestamp,
         date,
@@ -423,11 +562,20 @@ export class PaperTrader {
         signal.conditionId,
         signal.tokenId,
         execution.executedSize.toFixed(4),
-        execution.executedPrice.toFixed(4),
-        (execution.executedSize * execution.executedPrice).toFixed(2),
+        execution.executedPrice.toFixed(6),
+        (execution.executedSize * execution.executedPrice).toFixed(4),
         this.account.balance.toFixed(2),
         signal.strategyName,
         execution.status,
+        // PnL Calculation Details
+        positionSizeBefore.toFixed(4),
+        positionSizeAfter.toFixed(4),
+        avgPriceBefore.toFixed(6),
+        avgPriceAfter.toFixed(6),
+        costBasis.toFixed(4),
+        currentValue.toFixed(4),
+        realizedPnl.toFixed(4),
+        `"${pnlCalculation}"`,
       ].join(",");
 
       fs.appendFileSync(this.csvFilePath, row + "\n", "utf8");
@@ -447,6 +595,8 @@ export class PaperTrader {
       paperTrade: true,
       timestamp: new Date(),
     };
+
+    logger.debug(`Executing paper order: ${signal.side} ${signal.size.toFixed(2)} @ $${signal.price.toFixed(4)} for ${signal.tokenId}`);
 
     try {
       // Get current market price for realistic execution
@@ -524,6 +674,17 @@ export class PaperTrader {
       execution.executedSize = signal.size;
       execution.fees = 0; // Fees removed
 
+      // Capture position state BEFORE updating (for CSV logging)
+      const positionBefore = signal.side === "BUY" 
+        ? (this.account.positions.get(signal.tokenId) ? { ...this.account.positions.get(signal.tokenId)! } : null)
+        : (this.account.positions.get(signal.tokenId) ? { ...this.account.positions.get(signal.tokenId)! } : null);
+      
+      // Store position before state in execution for CSV logging
+      (execution as any).positionBefore = positionBefore ? {
+        size: positionBefore.size,
+        avgPrice: positionBefore.avgPrice,
+      } : { size: 0, avgPrice: 0 };
+
       // Save to history
       const history: TradeHistory = {
         marketId: signal.marketId,
@@ -556,12 +717,17 @@ export class PaperTrader {
         `Strategy: ${signal.strategyName}`
       );
 
-      // Write to CSV file
+      // Write to CSV file (position is now updated, but we have positionBefore stored)
       this.writeTradeToCsv(execution, signal);
     } catch (error) {
       execution.status = "failed";
       execution.error = error instanceof Error ? error.message : "Unknown error";
-      logger.error("Paper trade execution error:", error);
+      logger.error(`Paper trade execution error for ${signal.side} ${signal.size} @ $${signal.price}:`, error);
+    }
+
+    // Log execution result for debugging
+    if (execution.status === "failed") {
+      logger.warn(`Paper trade failed: ${execution.error || "Unknown error"}`);
     }
 
     return execution;
@@ -771,6 +937,308 @@ export class PaperTrader {
       createdAt: new Date(),
     };
     logger.paper("Paper account reset");
+  }
+
+  /**
+   * Generate a formatted, grouped PnL report as a TXT file
+   * Groups markets by hour window (15-min markets + 1-hour market in same hour)
+   */
+  generateFormattedPnLReport(): void {
+    try {
+      const runId = getRunId();
+      const logsDir = path.join(process.cwd(), "logs");
+      const paperDir = path.join(logsDir, "paper");
+      const pnlCsvPath = path.join(paperDir, `Paper Market PNL_${runId}.csv`);
+      const reportPath = path.join(paperDir, `PnL Report_${runId}.txt`);
+
+      if (!fs.existsSync(pnlCsvPath)) {
+        logger.warn(`PNL CSV file not found: ${pnlCsvPath}`);
+        return;
+      }
+
+      // Read and parse CSV
+      const csvContent = fs.readFileSync(pnlCsvPath, "utf8");
+      const lines = csvContent.split("\n").filter(line => line.trim());
+      if (lines.length < 2) {
+        logger.warn("No market data found in PNL CSV");
+        return;
+      }
+
+      // Helper function to parse CSV row with quoted fields
+      const parseCSVRow = (line: string): string[] => {
+        const row: string[] = [];
+        let current = "";
+        let inQuotes = false;
+        for (let j = 0; j < line.length; j++) {
+          const char = line[j];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === "," && !inQuotes) {
+            row.push(current.trim().replace(/^"|"$/g, ""));
+            current = "";
+          } else {
+            current += char;
+          }
+        }
+        row.push(current.trim().replace(/^"|"$/g, ""));
+        return row;
+      };
+
+      // Parse header
+      const headerRow = parseCSVRow(lines[0]);
+      const marketNameIdx = headerRow.findIndex(h => h.includes("Market Name"));
+      const totalPnlIdx = headerRow.findIndex(h => h.includes("Total PnL"));
+      const pnlPercentIdx = headerRow.findIndex(h => h.includes("PnL Percent"));
+      const avgCostUpIdx = headerRow.findIndex(h => h.includes("Average Cost Per Share UP"));
+      const avgCostDownIdx = headerRow.findIndex(h => h.includes("Average Cost Per Share DOWN"));
+      const sharesUpIdx = headerRow.findIndex(h => h.includes("Shares Up") && !h.includes("Final Value"));
+      const sharesDownIdx = headerRow.findIndex(h => h.includes("Shares Down") && !h.includes("Final Value"));
+      const totalInvestedIdx = headerRow.findIndex(h => h.includes("Total Invested"));
+      const outcomeIdx = headerRow.findIndex(h => h.includes("Outcome"));
+      const switchReasonIdx = headerRow.findIndex(h => h.includes("Market Switch Reason"));
+
+      if (marketNameIdx === -1 || totalPnlIdx === -1) {
+        logger.error("Required columns not found in PNL CSV");
+        return;
+      }
+
+      interface MarketData {
+        name: string;
+        pnl: number;
+        pnlPercent: number;
+        avgCostUp: number;
+        avgCostDown: number;
+        sharesUp: number;
+        sharesDown: number;
+        totalInvested: number;
+        outcome: string;
+        is15Min: boolean;
+        is1Hour: boolean;
+        hourWindow: string; // e.g., "12:00PM-1:00PM"
+        timeSlot?: string; // For 15-min: "12:00PM-12:15PM", "12:15PM-12:30PM", etc.
+      }
+
+      const markets: MarketData[] = [];
+
+      // Parse data rows (skip header and snapshot rows)
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        // Parse CSV line
+        const row = parseCSVRow(line);
+
+        const marketName = row[marketNameIdx] || "";
+        const switchReason = row[switchReasonIdx] || "";
+
+        // Only include market closed entries (exclude snapshots)
+        if (switchReason !== "Market Closed") continue;
+
+        const pnlStr = row[totalPnlIdx]?.replace(/[$,]/g, "") || "0";
+        const pnl = parseFloat(pnlStr) || 0;
+        const pnlPercent = parseFloat(row[pnlPercentIdx] || "0") || 0;
+        const avgCostUp = parseFloat(row[avgCostUpIdx] || "0") || 0;
+        const avgCostDown = parseFloat(row[avgCostDownIdx] || "0") || 0;
+        const sharesUp = parseFloat(row[sharesUpIdx] || "0") || 0;
+        const sharesDown = parseFloat(row[sharesDownIdx] || "0") || 0;
+        const totalInvestedStr = row[totalInvestedIdx] || "0";
+        const totalInvested = parseFloat(totalInvestedStr.replace(/[$,]/g, "")) || 0;
+        const outcome = row[outcomeIdx] || "";
+
+        // Determine market type and extract time information
+        // 15-min markets have format: "Bitcoin Up or Down - January 8, 12:15PM-12:30PM ET"
+        // 1-hour markets have format: "Bitcoin Up or Down - January 8, 12PM ET"
+        const hasTimeRange = marketName.match(/\d{1,2}:\d{2}(AM|PM)-\d{1,2}:\d{2}(AM|PM)/i);
+        const is15Min = hasTimeRange !== null;
+        const is1Hour = (marketName.includes("Bitcoin Up or Down") || marketName.includes("Ethereum Up or Down")) &&
+                       !is15Min && marketName.match(/\d{1,2}(AM|PM) ET/i) !== null;
+
+        let hourWindow = "";
+        let timeSlot = "";
+
+        if (is15Min) {
+          // Extract time slots like "12:15PM-12:30PM"
+          const timeMatch = marketName.match(/(\d{1,2}):\d{2}(AM|PM)-(\d{1,2}):\d{2}(AM|PM)/i);
+          if (timeMatch) {
+            timeSlot = `${timeMatch[1]}:${timeMatch[2]}-${timeMatch[3]}:${timeMatch[4]}`;
+            // Extract hour window - use the START hour for grouping
+            // All 15-min markets that start in the same hour should be grouped together
+            // E.g., 12:00-12:15, 12:15-12:30, 12:30-12:45, 12:45-1:00 all go in "12:00PM-1:00PM" window
+            let startH = parseInt(timeMatch[1]);
+            const startAmpm = timeMatch[2].toUpperCase();
+            
+            // Calculate the hour window (start hour to next hour)
+            let endH = startH + 1;
+            let endAmpm = startAmpm;
+            
+            // Handle hour rollover
+            if (startH === 12 && startAmpm === "PM") {
+              endH = 1;
+              endAmpm = "PM";
+            } else if (startH === 12 && startAmpm === "AM") {
+              endH = 1;
+              endAmpm = "AM";
+            } else if (startH === 11 && startAmpm === "PM") {
+              endH = 12;
+              endAmpm = "AM";
+            } else if (startH === 11 && startAmpm === "AM") {
+              endH = 12;
+              endAmpm = "PM";
+            }
+            
+            hourWindow = `${startH}:00${startAmpm}-${endH}:00${endAmpm}`;
+          }
+        } else if (is1Hour) {
+          // Extract hour like "12PM ET" or "1PM ET"
+          const hourMatch = marketName.match(/(\d{1,2})(AM|PM) ET/i);
+          if (hourMatch) {
+            let hour = parseInt(hourMatch[1]);
+            const ampm = hourMatch[2].toUpperCase();
+            let nextHour = hour + 1;
+            let nextAmpm = ampm;
+            
+            // Handle hour rollover
+            if (hour === 12 && ampm === "PM") {
+              nextHour = 1;
+              nextAmpm = "PM";
+            } else if (hour === 11 && ampm === "PM") {
+              nextHour = 12;
+              nextAmpm = "AM";
+            } else if (hour === 12 && ampm === "AM") {
+              nextHour = 1;
+              nextAmpm = "AM";
+            } else if (hour === 11 && ampm === "AM") {
+              nextHour = 12;
+              nextAmpm = "PM";
+            }
+            
+            hourWindow = `${hour}:00${ampm}-${nextHour}:00${nextAmpm}`;
+          }
+        }
+
+        markets.push({
+          name: marketName,
+          pnl,
+          pnlPercent,
+          avgCostUp,
+          avgCostDown,
+          sharesUp,
+          sharesDown,
+          totalInvested,
+          outcome,
+          is15Min,
+          is1Hour,
+          hourWindow,
+          timeSlot,
+        });
+      }
+
+      // Group markets by hour window
+      const groupedByHour: Map<string, MarketData[]> = new Map();
+      for (const market of markets) {
+        if (!market.hourWindow) continue;
+        if (!groupedByHour.has(market.hourWindow)) {
+          groupedByHour.set(market.hourWindow, []);
+        }
+        groupedByHour.get(market.hourWindow)!.push(market);
+      }
+
+      // Generate formatted report
+      let report = "";
+      report += "=".repeat(100) + "\n";
+      report += "                    PAPER TRADING PNL REPORT\n";
+      report += "=".repeat(100) + "\n\n";
+
+      // Sort hour windows chronologically
+      const sortedWindows = Array.from(groupedByHour.keys()).sort((a, b) => {
+        // Parse hour windows for sorting
+        const parseHour = (str: string): number => {
+          const match = str.match(/(\d{1,2}):\d{2}(AM|PM)/i);
+          if (!match) return 0;
+          let hour = parseInt(match[1]);
+          if (match[2].toUpperCase() === "PM" && hour !== 12) hour += 12;
+          if (match[2].toUpperCase() === "AM" && hour === 12) hour = 0;
+          return hour;
+        };
+        return parseHour(a) - parseHour(b);
+      });
+
+      let totalPnL = 0;
+      let totalInvested = 0;
+
+      for (const hourWindow of sortedWindows) {
+        const marketsInWindow = groupedByHour.get(hourWindow)!;
+        
+        // Sort: 15-min markets by time slot, then 1-hour market
+        marketsInWindow.sort((a, b) => {
+          if (a.is15Min && !b.is15Min) return -1;
+          if (!a.is15Min && b.is15Min) return 1;
+          if (a.is15Min && b.is15Min) {
+            return (a.timeSlot || "").localeCompare(b.timeSlot || "");
+          }
+          return 0;
+        });
+
+        report += "\n" + "─".repeat(100) + "\n";
+        report += `  HOUR WINDOW: ${hourWindow}\n`;
+        report += "─".repeat(100) + "\n\n";
+
+        let windowPnL = 0;
+        let windowInvested = 0;
+
+        for (const market of marketsInWindow) {
+          const marketType = market.is15Min ? "15-Min" : market.is1Hour ? "1-Hour" : "Other";
+          const pnlSign = market.pnl >= 0 ? "+" : "";
+
+          report += `  ${marketType} Market: ${market.name}\n`;
+          report += `  ${" ".repeat(16)}PnL: ${pnlSign}$${market.pnl.toFixed(2)} (${pnlSign}${market.pnlPercent.toFixed(2)}%)\n`;
+          
+          if (market.avgCostUp > 0 || market.avgCostDown > 0) {
+            report += `  ${" ".repeat(16)}Average Cost - UP: $${market.avgCostUp.toFixed(4)}  |  DOWN: $${market.avgCostDown.toFixed(4)}\n`;
+          }
+          
+          if (market.sharesUp > 0 || market.sharesDown > 0) {
+            report += `  ${" ".repeat(16)}Shares - UP: ${market.sharesUp.toFixed(2)}  |  DOWN: ${market.sharesDown.toFixed(2)}\n`;
+          }
+          
+          report += `  ${" ".repeat(16)}Total Invested: $${market.totalInvested.toFixed(2)}  |  Outcome: ${market.outcome || "N/A"}\n`;
+          report += "\n";
+
+          windowPnL += market.pnl;
+          windowInvested += market.totalInvested;
+        }
+
+        // Window summary
+        const windowPnLSign = windowPnL >= 0 ? "+" : "";
+        const windowPnLPercent = windowInvested > 0 ? (windowPnL / windowInvested) * 100 : 0;
+        report += `  ${"─".repeat(88)}\n`;
+        report += `  Window Summary:  PnL: ${windowPnLSign}$${windowPnL.toFixed(2)} (${windowPnLSign}${windowPnLPercent.toFixed(2)}%)  |  Total Invested: $${windowInvested.toFixed(2)}\n`;
+        report += `  ${"─".repeat(88)}\n\n`;
+
+        totalPnL += windowPnL;
+        totalInvested += windowInvested;
+      }
+
+      // Overall summary
+      report += "\n" + "=".repeat(100) + "\n";
+      report += "                              OVERALL SUMMARY\n";
+      report += "=".repeat(100) + "\n\n";
+      const totalPnLSign = totalPnL >= 0 ? "+" : "";
+      const totalPnLPercent = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
+      report += `  Total PnL: ${totalPnLSign}$${totalPnL.toFixed(2)} (${totalPnLSign}${totalPnLPercent.toFixed(2)}%)\n`;
+      report += `  Total Invested: $${totalInvested.toFixed(2)}\n`;
+      report += `  Markets Traded: ${markets.length}\n`;
+      report += `  Hour Windows: ${sortedWindows.length}\n`;
+      report += "\n" + "=".repeat(100) + "\n";
+      report += `  Generated: ${new Date().toLocaleString()}\n`;
+      report += "=".repeat(100) + "\n";
+
+      // Write report
+      fs.writeFileSync(reportPath, report, "utf8");
+      logger.info(`📊 Formatted PnL report generated: ${reportPath}`);
+    } catch (error) {
+      logger.error(`Failed to generate formatted PnL report: ${error}`);
+    }
   }
 }
 
