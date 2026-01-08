@@ -141,6 +141,10 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     const cooldownSec = this.getMarketCooldown(marketType);
     const timeSinceLastRebalance = (now - state.lastRebalanceTime) / 1000;
     if (timeSinceLastRebalance < cooldownSec) {
+      // Only log debug info occasionally to avoid spam
+      if (Math.random() < 0.01) { // 1% chance to log
+        this.log(`[${this.getShortName(marketType)}] Cooldown: ${timeSinceLastRebalance.toFixed(1)}s < ${cooldownSec}s`);
+      }
       return [];
     }
 
@@ -155,6 +159,10 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
     // CLOSE BEHAVIOR: Skip some trades near market close (15m markets only)
     if (this.shouldSkipTradeNearClose(state)) {
+      // Only log debug info occasionally to avoid spam
+      if (Math.random() < 0.01) { // 1% chance to log
+        this.log(`[${this.getShortName(marketType)}] Skipping trade near market close`);
+      }
       return [];
     }
 
@@ -190,6 +198,11 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
       targetRatio,
       closeSizeMultiplier
     );
+
+    // Debug: Log when no signals generated (occasionally to avoid spam)
+    if (signals.length === 0 && Math.random() < 0.05) { // 5% chance to log
+      this.log(`[${this.getShortName(marketType)}] No signals: inventory=$${totalInventoryValue.toFixed(2)}, ratio=${(yesRatio * 100).toFixed(1)}%, target=${(targetRatio * 100).toFixed(1)}%, balance=$${this.balance.toFixed(2)}`);
+    }
 
     if (signals.length > 0) {
       state.lastRebalanceTime = now;
@@ -469,6 +482,11 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     if (totalInventory > 0) {
       yesDeviation = currentYesRatio - targetRatio;  // Positive = overweight
       noDeviation = (1 - currentYesRatio) - (1 - targetRatio);  // Positive = overweight
+    } else {
+      // No inventory: Force deviation to trigger initial inventory building
+      // Set small negative deviation to allow building both sides
+      yesDeviation = -this.rebalanceConfig.rebalance_band * 0.1;  // Small negative to trigger trades
+      noDeviation = -this.rebalanceConfig.rebalance_band * 0.1;
     }
 
     // Calculate weight multipliers based on deviation
