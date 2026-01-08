@@ -836,20 +836,47 @@ export class PaperTrader {
         const marketPnL = data.marketPnL;
         const marketName = data.marketName;
         
-        // Calculate averages from marketPnL positions
-        const upPositions = marketPnL.positions.filter((p: any) => 
-          p.position.outcome?.toLowerCase() === 'up' || p.position.outcome?.toLowerCase() === 'yes'
-        );
-        const downPositions = marketPnL.positions.filter((p: any) => 
-          p.position.outcome?.toLowerCase() === 'down' || p.position.outcome?.toLowerCase() === 'no'
-        );
+        // Use stored shares values (they're passed in when logging, even if positions are settled)
+        let sharesUp = data.sharesUp || 0;
+        let sharesDown = data.sharesDown || 0;
+        let avgCostUp = 0;
+        let avgCostDown = 0;
+        
+        // Try to calculate averages from marketPnL positions if available
+        if (marketPnL.positions && marketPnL.positions.length > 0) {
+          const upPositions = marketPnL.positions.filter((p: any) => 
+            p.position.outcome?.toLowerCase() === 'up' || p.position.outcome?.toLowerCase() === 'yes'
+          );
+          const downPositions = marketPnL.positions.filter((p: any) => 
+            p.position.outcome?.toLowerCase() === 'down' || p.position.outcome?.toLowerCase() === 'no'
+          );
 
-        const sharesUp = upPositions.reduce((sum: number, p: any) => sum + p.position.size, 0);
-        const sharesDown = downPositions.reduce((sum: number, p: any) => sum + p.position.size, 0);
-        const costBasisUp = upPositions.reduce((sum: number, p: any) => sum + p.costBasis, 0);
-        const costBasisDown = downPositions.reduce((sum: number, p: any) => sum + p.costBasis, 0);
-        const avgCostUp = sharesUp > 0 ? costBasisUp / sharesUp : 0;
-        const avgCostDown = sharesDown > 0 ? costBasisDown / sharesDown : 0;
+          const calculatedSharesUp = upPositions.reduce((sum: number, p: any) => sum + p.position.size, 0);
+          const calculatedSharesDown = downPositions.reduce((sum: number, p: any) => sum + p.position.size, 0);
+          
+          // Use calculated values if they're available, otherwise use stored values
+          if (calculatedSharesUp > 0 || calculatedSharesDown > 0) {
+            sharesUp = calculatedSharesUp;
+            sharesDown = calculatedSharesDown;
+          }
+          
+          const costBasisUp = upPositions.reduce((sum: number, p: any) => sum + p.costBasis, 0);
+          const costBasisDown = downPositions.reduce((sum: number, p: any) => sum + p.costBasis, 0);
+          avgCostUp = sharesUp > 0 ? costBasisUp / sharesUp : 0;
+          avgCostDown = sharesDown > 0 ? costBasisDown / sharesDown : 0;
+        } else {
+          // If no positions (market already settled), calculate avg cost from stored PnL data
+          // avgCost = (totalPnl / pnlPercent * 100) / shares, but we need to estimate
+          // For now, use price as approximation if we have price data
+          if (sharesUp > 0 && data.priceUp > 0) {
+            // Estimate: if we have PnL and shares, we can back-calculate
+            // But without cost basis, we'll use a simple approximation
+            avgCostUp = data.priceUp; // Fallback approximation
+          }
+          if (sharesDown > 0 && data.priceDown > 0) {
+            avgCostDown = data.priceDown; // Fallback approximation
+          }
+        }
 
         // Determine market type and extract time information
         // 15-min markets have format: "Bitcoin Up or Down - January 8, 12:15PM-12:30PM ET"
@@ -920,6 +947,19 @@ export class PaperTrader {
           }
         }
 
+        // Calculate total invested from stored data or calculated values
+        let totalInvested = 0;
+        if (marketPnL.totalCostBasis && marketPnL.totalCostBasis > 0) {
+          totalInvested = marketPnL.totalCostBasis;
+        } else {
+          // Fallback: estimate from shares and avg costs
+          totalInvested = (sharesUp * avgCostUp) + (sharesDown * avgCostDown);
+          // If that's 0, try using the PnL calculation: totalInvested = totalPnl / (pnlPercent / 100)
+          if (totalInvested === 0 && data.pnlPercent !== 0) {
+            totalInvested = Math.abs(data.totalPnl / (data.pnlPercent / 100));
+          }
+        }
+
         markets.push({
           name: marketName,
           pnl: data.totalPnl,
@@ -928,7 +968,7 @@ export class PaperTrader {
           avgCostDown,
           sharesUp,
           sharesDown,
-          totalInvested: marketPnL.totalCostBasis,
+          totalInvested,
           outcome: "", // Will be determined from final prices
           is15Min,
           is1Hour,
