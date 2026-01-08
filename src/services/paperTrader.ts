@@ -819,6 +819,8 @@ export class PaperTrader {
         pnlPercent: number;
         avgCostUp: number;
         avgCostDown: number;
+        avgPriceUp: number;
+        avgPriceDown: number;
         sharesUp: number;
         sharesDown: number;
         totalInvested: number;
@@ -966,6 +968,8 @@ export class PaperTrader {
           pnlPercent: data.pnlPercent,
           avgCostUp,
           avgCostDown,
+          avgPriceUp: data.priceUp || 0,
+          avgPriceDown: data.priceDown || 0,
           sharesUp,
           sharesDown,
           totalInvested,
@@ -1034,19 +1038,35 @@ export class PaperTrader {
           const marketType = market.is15Min ? "15-Min" : market.is1Hour ? "1-Hour" : "Other";
           const pnlSign = market.pnl >= 0 ? "+" : "";
 
-          report += `  ${marketType} Market: ${market.name}\n`;
-          report += `  ${" ".repeat(16)}PnL: ${pnlSign}$${market.pnl.toFixed(2)} (${pnlSign}${market.pnlPercent.toFixed(2)}%)\n`;
+          // Market header with full name
+          report += `  ${"═".repeat(96)}\n`;
+          report += `  ${marketType} Market\n`;
+          report += `  ${"─".repeat(96)}\n`;
+          report += `  Market Name: ${market.name}\n`;
+          report += `  ${"─".repeat(96)}\n`;
           
+          // Individual PnL (prominent)
+          report += `  Individual PnL: ${pnlSign}$${market.pnl.toFixed(2)} (${pnlSign}${market.pnlPercent.toFixed(2)}%)\n`;
+          report += `  ${"─".repeat(96)}\n`;
+          
+          // Average Prices
+          if (market.avgPriceUp > 0 || market.avgPriceDown > 0) {
+            report += `  Average Price - UP: $${market.avgPriceUp.toFixed(4)}  |  DOWN: $${market.avgPriceDown.toFixed(4)}\n`;
+          }
+          
+          // Average Costs
           if (market.avgCostUp > 0 || market.avgCostDown > 0) {
-            report += `  ${" ".repeat(16)}Average Cost - UP: $${market.avgCostUp.toFixed(4)}  |  DOWN: $${market.avgCostDown.toFixed(4)}\n`;
+            report += `  Average Cost  - UP: $${market.avgCostUp.toFixed(4)}  |  DOWN: $${market.avgCostDown.toFixed(4)}\n`;
           }
           
+          // Shares
           if (market.sharesUp > 0 || market.sharesDown > 0) {
-            report += `  ${" ".repeat(16)}Shares - UP: ${market.sharesUp.toFixed(2)}  |  DOWN: ${market.sharesDown.toFixed(2)}\n`;
+            report += `  Shares        - UP: ${market.sharesUp.toFixed(2)}  |  DOWN: ${market.sharesDown.toFixed(2)}\n`;
           }
           
-          report += `  ${" ".repeat(16)}Total Invested: $${market.totalInvested.toFixed(2)}  |  Outcome: ${market.outcome || "N/A"}\n`;
-          report += "\n";
+          // Total Invested and Outcome
+          report += `  Total Invested: $${market.totalInvested.toFixed(2)}  |  Outcome: ${market.outcome || "Pending"}\n`;
+          report += `  ${"═".repeat(96)}\n\n`;
 
           windowPnL += market.pnl;
           windowInvested += market.totalInvested;
