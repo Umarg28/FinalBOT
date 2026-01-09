@@ -19,12 +19,12 @@ import { getRunId } from '../utils/runId';
 
 const CONFIG = {
   // Market discovery settings - multiple market types to track
-  // NOTE: Polymarket replaced 1-hour markets with 5-minute markets
+  // Only 15-minute and 1-hour markets exist
   MARKET_SLUG_PREFIXES: [
     'btc-updown-15m',           // BTC 15-minute
     'eth-updown-15m',           // ETH 15-minute
-    'btc-updown-5m',            // BTC 5-minute (replaced 1-hour)
-    'eth-updown-5m',            // ETH 5-minute (replaced 1-hour)
+    'bitcoin-up-or-down',       // BTC 1-hour
+    'ethereum-up-or-down',      // ETH 1-hour
   ],
   GAMMA_API_URL: 'https://gamma-api.polymarket.com/events',
   CLOB_API_URL: 'https://clob.polymarket.com',
@@ -248,14 +248,11 @@ class MarketDiscovery {
       const now = Math.floor(Date.now() / 1000);
 
       // =========================================================================
-      // UNIFIED FETCHING: All market types use the same timestamp-based slug pattern
+      // Fetch 15-minute markets using timestamp-based slug pattern
       // =========================================================================
-
-      // Fetch 15m markets: btc-updown-15m-{timestamp}, eth-updown-15m-{timestamp}
-      // 15 minutes = 900 seconds, fetch from -1 to +8 windows
       for (const prefix of ['btc-updown-15m', 'eth-updown-15m']) {
         for (let offset = -1; offset <= 8; offset++) {
-          const targetTime = now + (offset * 900);
+          const targetTime = now + (offset * 900); // 15 minutes = 900 seconds
           const roundedTime = Math.floor(targetTime / 900) * 900;
           const slug = `${prefix}-${roundedTime}`;
           const marketUrl = `${CONFIG.GAMMA_API_URL}?slug=${slug}`;
@@ -264,17 +261,38 @@ class MarketDiscovery {
         }
       }
 
-      // Fetch 5m markets: btc-updown-5m-{timestamp}, eth-updown-5m-{timestamp}
-      // 5 minutes = 300 seconds, fetch from -1 to +15 windows
-      for (const prefix of ['btc-updown-5m', 'eth-updown-5m']) {
-        for (let offset = -1; offset <= 15; offset++) {
-          const targetTime = now + (offset * 300);
-          const roundedTime = Math.floor(targetTime / 300) * 300;
-          const slug = `${prefix}-${roundedTime}`;
-          const marketUrl = `${CONFIG.GAMMA_API_URL}?slug=${slug}`;
-          const markets = await this.fetchMarketsFromUrl(marketUrl);
-          allMarkets.push(...markets);
-        }
+      // =========================================================================
+      // Fetch 1-hour markets using tag_slug and slug_contains
+      // =========================================================================
+
+      // Fetch from tag_slug=up-or-down
+      const hourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&active=true&closed=false&limit=100&order=endDate&ascending=true`;
+      const hourlyMarkets = await this.fetchMarketsFromUrl(hourlyUrl);
+      allMarkets.push(...hourlyMarkets);
+
+      // Also fetch upcoming markets that haven't started yet
+      const upcomingHourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&active=false&closed=false&limit=50&order=endDate&ascending=true`;
+      const upcomingHourlyMarkets = await this.fetchMarketsFromUrl(upcomingHourlyUrl);
+      allMarkets.push(...upcomingHourlyMarkets);
+
+      // Fetch without active filter to catch markets in transition
+      const allHourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&closed=false&limit=100&order=endDate&ascending=true`;
+      const allHourlyMarkets = await this.fetchMarketsFromUrl(allHourlyUrl);
+      allMarkets.push(...allHourlyMarkets);
+
+      // Backup: fetch hourly markets by slug prefix
+      for (const hourlyPrefix of ['bitcoin-up-or-down', 'ethereum-up-or-down']) {
+        const hourlyPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=true&closed=false&limit=20`;
+        const prefixMarkets = await this.fetchMarketsFromUrl(hourlyPrefixUrl);
+        allMarkets.push(...prefixMarkets);
+
+        const upcomingPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=false&closed=false&limit=10`;
+        const upcomingPrefixMarkets = await this.fetchMarketsFromUrl(upcomingPrefixUrl);
+        allMarkets.push(...upcomingPrefixMarkets);
+
+        const allPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&closed=false&limit=20`;
+        const allPrefixMarkets = await this.fetchMarketsFromUrl(allPrefixUrl);
+        allMarkets.push(...allPrefixMarkets);
       }
 
       // Deduplicate by condition_id
@@ -315,7 +333,7 @@ class MarketDiscovery {
           const marketSlug = (market.slug || event.slug || '').toLowerCase();
           const eventSlug = (event.slug || '').toLowerCase();
 
-          // Match against configured market prefixes (btc-updown-15m, eth-updown-15m, btc-updown-5m, eth-updown-5m)
+          // Match against configured market prefixes (btc-updown-15m, eth-updown-15m, bitcoin-up-or-down, ethereum-up-or-down)
           const marketType = CONFIG.MARKET_SLUG_PREFIXES.find(prefix =>
             marketSlug.startsWith(prefix.toLowerCase()) ||
             eventSlug.startsWith(prefix.toLowerCase())
@@ -372,8 +390,8 @@ class MarketDiscovery {
 
       // Debug: Count markets by type
       const count15m = allMarkets.filter(m => m.market_type.includes('15m')).length;
-      const count5m = allMarkets.filter(m => m.market_type.includes('5m')).length;
-      log('debug', `fetchAllMarkets returned ${allMarkets.length} total: ${count15m} 15-min, ${count5m} 5-min`);
+      const count1h = allMarkets.filter(m => m.market_type.includes('up-or-down')).length;
+      log('debug', `fetchAllMarkets returned ${allMarkets.length} total: ${count15m} 15-min, ${count1h} 1-hour`);
 
       this.currentMarkets.clear();
       this.nextMarkets.clear();
@@ -420,12 +438,23 @@ class MarketDiscovery {
           // Only consider markets that haven't ended yet
           if (endTime > now) {
             if (startTime <= now) {
-              // Market has started
+              // Market has started and hasn't ended yet - this is an active market
+              // Pick the one with the most time left (i.e., the most recently started)
               if (!current) {
                 current = market;
-                // Check if this market is about to end or has ended
-                if (timeLeft < bufferMs || timeLeft <= 0) {
+                // Check if this market is about to end
+                if (timeLeft < bufferMs) {
                   expiringMarket = market;
+                }
+              } else {
+                // If we already have a current market, check if this one is better
+                // (has more time left, meaning it's a newer market)
+                const currentTimeLeft = new Date(current.end_date_iso).getTime() - now;
+                if (timeLeft > currentTimeLeft) {
+                  // This market has more time left - it's the newer one
+                  // The old "current" is actually expiring
+                  expiringMarket = current;
+                  current = market;
                 }
               }
             } else {
@@ -499,9 +528,9 @@ class MarketDiscovery {
     const missing = CONFIG.MARKET_SLUG_PREFIXES.filter(t => !this.currentMarkets.has(t));
     log('warn', `Could only find ${this.currentMarkets.size}/4 markets after ${maxRetries} attempts (missing: ${missing.join(', ')})`);
     
-    // If we're missing 5-minute markets, log more details
-    if (missing.includes('btc-updown-5m') || missing.includes('eth-updown-5m')) {
-      log('warn', '5-minute markets not found - they may not be available in the API yet. The bot will continue checking.');
+    // If we're missing 1-hour markets, log more details
+    if (missing.includes('bitcoin-up-or-down') || missing.includes('ethereum-up-or-down')) {
+      log('warn', '1-hour markets not found - they may not be available in the API yet. The bot will continue checking.');
     }
     
     return this.currentMarkets;
@@ -826,8 +855,8 @@ class PriceStreamLogger {
     const marketFiles: Record<string, string> = {
       'btc-updown-15m': `BTC - 15 min prices_${runId}.csv`,
       'eth-updown-15m': `ETH - 15 min prices_${runId}.csv`,
-      'btc-updown-5m': `BTC - 5 min prices_${runId}.csv`,
-      'eth-updown-5m': `ETH - 5 min prices_${runId}.csv`,
+      'bitcoin-up-or-down': `BTC - 1 hour prices_${runId}.csv`,
+      'ethereum-up-or-down': `ETH - 1 hour prices_${runId}.csv`,
     };
 
     for (const [marketType, filename] of Object.entries(marketFiles)) {
@@ -1254,9 +1283,9 @@ class PriceStreamLogger {
 
   private getHistoryKey(marketType: string): string {
     if (marketType.includes('btc') || marketType.includes('bitcoin')) {
-      return marketType.includes('15m') ? 'BTC-15m' : 'BTC-5m';
+      return marketType.includes('15m') ? 'BTC-15m' : 'BTC-1h';
     }
-    return marketType.includes('15m') ? 'ETH-15m' : 'ETH-5m';
+    return marketType.includes('15m') ? 'ETH-15m' : 'ETH-1h';
   }
 
   private onError(error: Error): void {
@@ -1470,9 +1499,9 @@ class PriceStreamLogger {
                     /\d{1,2}:\d{2}\s*(?:am|pm)\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)/i.test(searchText);
 
     if (isBTC) {
-      return is15Min ? 'btc-updown-15m' : 'btc-updown-5m';
+      return is15Min ? 'btc-updown-15m' : 'bitcoin-up-or-down';
     } else {
-      return is15Min ? 'eth-updown-15m' : 'eth-updown-5m';
+      return is15Min ? 'eth-updown-15m' : 'ethereum-up-or-down';
     }
   }
 

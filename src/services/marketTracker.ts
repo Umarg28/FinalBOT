@@ -493,11 +493,23 @@ export class MarketTracker {
         // Check for ETH-UpDown-15, ETH-UpDown-1h, BTC-UpDown-15, or BTC-UpDown-1h markets
         const upDownType = this.getUpDown15MarketType(activity);
         if (upDownType) {
-            // For 15min markets, use the category directly as key
+            // For 15min markets, we need to add the timestamp to make unique keys
+            // This ensures each 15-min window has its own market entry and can be closed/logged properly
             if (upDownType === 'BTC-UpDown-15' || upDownType === 'ETH-UpDown-15') {
+                // Extract timestamp from slug (e.g., "updown-15m-1736319600" -> "1736319600")
+                const slug = activity?.slug || activity?.eventSlug || '';
+                const timestampMatch = slug.match(/updown-15m-(\d+)/);
+                if (timestampMatch) {
+                    // Return unique key with timestamp: BTC-UpDown-15-1736319600
+                    return `${upDownType}-${timestampMatch[1]}`;
+                }
+                // Fallback: use conditionId if available for uniqueness
+                if (activity?.conditionId) {
+                    return `${upDownType}-${activity.conditionId.slice(-8)}`;
+                }
                 return upDownType;
             }
-            
+
             // For hourly markets, we need to add the hour to make unique keys
             // Extract the hour from the time (e.g., "9AM ET" -> "9" or "9am-et" -> "9")
             if (rawTitle) {
@@ -808,21 +820,18 @@ export class MarketTracker {
      */
     private removeOlderUpDown15Markets(newMarketKey: string, newMarketActivity: any): void {
         // Check if this is an UpDown market (15min or hourly)
-        const isUpDown15 = newMarketKey === 'ETH-UpDown-15' || newMarketKey === 'BTC-UpDown-15';
+        // Keys now include timestamp suffix: BTC-UpDown-15-1736319600, ETH-UpDown-1h-9
+        const isUpDown15 = newMarketKey.startsWith('ETH-UpDown-15') || newMarketKey.startsWith('BTC-UpDown-15');
         const isUpDown1h = newMarketKey.startsWith('ETH-UpDown-1h') || newMarketKey.startsWith('BTC-UpDown-1h');
-        
+
         if (!isUpDown15 && !isUpDown1h) {
             return;
         }
-        
+
         // Extract category for comparison (BTC-UpDown-15, BTC-UpDown-1h, etc.)
-        let newCategory: string;
-        if (isUpDown15) {
-            newCategory = newMarketKey; // e.g., "BTC-UpDown-15"
-        } else {
-            // For hourly markets, extract base category (e.g., "BTC-UpDown-1h" from "BTC-UpDown-1h-6")
-            newCategory = newMarketKey.split('-').slice(0, 3).join('-'); // "BTC-UpDown-1h"
-        }
+        // For 15min: "BTC-UpDown-15-1736319600" -> "BTC-UpDown-15"
+        // For hourly: "BTC-UpDown-1h-6" -> "BTC-UpDown-1h"
+        const newCategory = newMarketKey.split('-').slice(0, 3).join('-');
 
         const marketsToRemove: string[] = [];
         const newMarketTimestamp = newMarketActivity?.timestamp 
@@ -1755,10 +1764,10 @@ export class MarketTracker {
                 wsMarketType = 'btc-updown-15m';
             } else if (marketKey.includes('ETH') && marketKey.includes('-15')) {
                 wsMarketType = 'eth-updown-15m';
-            } else if (marketKey.includes('BTC') && marketKey.includes('-5m')) {
-                wsMarketType = 'btc-updown-5m';
-            } else if (marketKey.includes('ETH') && marketKey.includes('-5m')) {
-                wsMarketType = 'eth-updown-5m';
+            } else if (marketKey.includes('BTC') && marketKey.includes('-1h')) {
+                wsMarketType = 'bitcoin-up-or-down';
+            } else if (marketKey.includes('ETH') && marketKey.includes('-1h')) {
+                wsMarketType = 'ethereum-up-or-down';
             }
 
             if (wsMarketType) {
@@ -2040,13 +2049,20 @@ export class MarketTracker {
             }
         }
 
-        // Log closed markets to CSV (async, don't wait)
+        // Log closed markets and trigger market close callback (for PnL report update)
         if (closedMarkets.length > 0) {
-            // Log each closed market
+            // Log each closed market and trigger callback
             closedMarkets.forEach(market => {
                 this.logClosedMarketPnL(market).catch(err => {
                     console.error(`Failed to log closed market ${market.marketKey}: ${err}`);
                 });
+
+                // Trigger market close callback to update PnL report
+                if (this.onMarketCloseCallback) {
+                    this.onMarketCloseCallback(market).catch(err => {
+                        console.error(`Failed to trigger market close callback for ${market.marketKey}: ${err}`);
+                    });
+                }
             });
         }
 
@@ -3029,17 +3045,32 @@ export class MarketTracker {
             `eth-updown-15m-${next15MinTimestamp}`,
         ];
 
-        // Also check for 5-minute markets (replaced 1-hour markets)
-        // 5-minute markets: btc-updown-5m-{timestamp}
-        const nowSec = Math.floor(now / 1000);
-        const current5MinTimestamp = Math.floor(nowSec / 300) * 300;
-        const next5MinTimestamp = current5MinTimestamp + 300;
+        // Also check for 1-hour markets
+        const etFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: 'numeric',
+            hour12: true,
+        });
+        const etParts = etFormatter.formatToParts(new Date(now));
+        const month = etParts.find(p => p.type === 'month')?.value?.toLowerCase() || '';
+        const day = etParts.find(p => p.type === 'day')?.value || '';
+        const hour = parseInt(etParts.find(p => p.type === 'hour')?.value || '0', 10);
+        const ampm = etParts.find(p => p.type === 'dayPeriod')?.value?.toLowerCase() || 'am';
+
+        // Current and next hour slugs
+        const currentHourSlug = `${hour}${ampm}`;
+        const nextHour = ampm === 'am' && hour === 11 ? 12 : ampm === 'pm' && hour === 11 ? 12 : (hour % 12) + 1;
+        const nextAmpm = ampm === 'am' && hour === 11 ? 'pm' : ampm === 'pm' && hour === 11 ? 'am' : ampm;
+        const nextHourSlug = `${nextHour}${nextAmpm}`;
 
         slugsToCheck.push(
-            `btc-updown-5m-${current5MinTimestamp}`,
-            `eth-updown-5m-${current5MinTimestamp}`,
-            `btc-updown-5m-${next5MinTimestamp}`,
-            `eth-updown-5m-${next5MinTimestamp}`,
+            `bitcoin-up-or-down-${month}-${day}-${currentHourSlug}-et`,
+            `ethereum-up-or-down-${month}-${day}-${currentHourSlug}-et`,
+            `bitcoin-up-or-down-${month}-${day}-${nextHourSlug}-et`,
+            `ethereum-up-or-down-${month}-${day}-${nextHourSlug}-et`,
         );
 
         // Fetch all slugs in parallel for speed
@@ -3052,14 +3083,16 @@ export class MarketTracker {
             // Determine market key
             const isBTC = slug.includes('btc') || slug.includes('bitcoin');
             const is15Min = slug.includes('updown-15m');
-            const is5Min = slug.includes('updown-5m');
+            const is1Hour = slug.includes('up-or-down');
             let marketKey: string;
 
             if (is15Min) {
                 marketKey = isBTC ? 'BTC-UpDown-15' : 'ETH-UpDown-15';
-            } else if (is5Min) {
-                // 5-minute market - use timestamp for unique key
-                marketKey = isBTC ? 'BTC-UpDown-5m' : 'ETH-UpDown-5m';
+            } else if (is1Hour) {
+                // 1-hour market - extract hour for unique key
+                const hourMatch = slug.match(/(\d+)(am|pm)-et$/i);
+                const hourNum = hourMatch ? hourMatch[1] : '0';
+                marketKey = isBTC ? `BTC-UpDown-1h-${hourNum}` : `ETH-UpDown-1h-${hourNum}`;
             } else {
                 // Unknown format - skip
                 return null;
@@ -3072,9 +3105,9 @@ export class MarketTracker {
                 return null;
             }
 
-            // For 15-min and 5-min markets, check if existing is from current window
-            if ((is15Min || is5Min) && existingMarket && existingMarket.endDate && existingMarket.endDate > now) {
-                const pattern = is15Min ? /updown-15m-(\d+)/ : /updown-5m-(\d+)/;
+            // For 15-min markets, check if existing is from current window
+            if (is15Min && existingMarket && existingMarket.endDate && existingMarket.endDate > now) {
+                const pattern = /updown-15m-(\d+)/;
                 const existingTimestamp = existingMarket.marketSlug?.match(pattern)?.[1];
                 const targetTimestamp = slug.match(pattern)?.[1];
                 if (existingTimestamp === targetTimestamp) {
@@ -3090,7 +3123,7 @@ export class MarketTracker {
                 const data = await fetchData(url).catch(() => null);
 
                 if (data && Array.isArray(data) && data.length > 0) {
-                    return { slug, data: data[0], marketKey, is15Min, is5Min, isBTC };
+                    return { slug, data: data[0], marketKey, is15Min, is1Hour, isBTC };
                 }
             } catch {
                 // Silently ignore
@@ -3103,7 +3136,7 @@ export class MarketTracker {
         for (const result of results) {
             if (!result) continue;
 
-            const { slug, data: event, marketKey, is15Min, is5Min } = result;
+            const { slug, data: event, marketKey, is15Min, is1Hour } = result;
             const markets = event.markets || [];
 
             if (markets.length === 0) continue;
@@ -3125,7 +3158,7 @@ export class MarketTracker {
 
             if (clobTokenIds.length < 2) continue;
 
-            // Parse end date - ALWAYS calculate from slug timestamp (most reliable)
+            // Parse end date - calculate from slug or API
             let endDate: number | undefined;
 
             if (is15Min) {
@@ -3135,12 +3168,44 @@ export class MarketTracker {
                     const startTime = parseInt(tsMatch[1], 10) * 1000;
                     endDate = startTime + (15 * 60 * 1000); // 15 minutes after start
                 }
-            } else if (is5Min) {
-                // For 5-min markets: calculate from slug timestamp
-                const tsMatch = slug.match(/updown-5m-(\d+)/);
-                if (tsMatch) {
-                    const startTime = parseInt(tsMatch[1], 10) * 1000;
-                    endDate = startTime + (5 * 60 * 1000); // 5 minutes after start
+            } else if (is1Hour) {
+                // For 1-hour markets: try API first, then calculate from slug
+                if (market.endDate) {
+                    endDate = typeof market.endDate === 'string'
+                        ? new Date(market.endDate).getTime()
+                        : market.endDate < 10000000000 ? market.endDate * 1000 : market.endDate;
+                } else if (event.endDate) {
+                    endDate = typeof event.endDate === 'string'
+                        ? new Date(event.endDate).getTime()
+                        : event.endDate < 10000000000 ? event.endDate * 1000 : event.endDate;
+                }
+
+                // Fallback: calculate from slug
+                if (!endDate) {
+                    const hourlyMatch = slug.match(/(\w+)-(\d+)-(\d{1,2})(am|pm)-et$/i);
+                    if (hourlyMatch) {
+                        const monthName = hourlyMatch[1];
+                        const dayNum = parseInt(hourlyMatch[2], 10);
+                        let hourNum = parseInt(hourlyMatch[3], 10);
+                        const ampmVal = hourlyMatch[4].toLowerCase();
+                        if (ampmVal === 'pm' && hourNum !== 12) hourNum += 12;
+                        if (ampmVal === 'am' && hourNum === 12) hourNum = 0;
+
+                        const months: {[key: string]: number} = {
+                            january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+                            july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+                        };
+                        const monthNum = months[monthName.toLowerCase()] ?? 0;
+                        const year = new Date().getFullYear();
+
+                        // Create ET time and convert to UTC
+                        const etDateStr = `${year}-${String(monthNum + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}T${String(hourNum).padStart(2, '0')}:00:00`;
+                        const tempDate = new Date(etDateStr);
+                        const etOffset = new Date(tempDate.toLocaleString('en-US', { timeZone: 'America/New_York' })).getTime() -
+                                         new Date(tempDate.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
+                        const startTimeUTC = tempDate.getTime() - etOffset;
+                        endDate = startTimeUTC + (60 * 60 * 1000); // 1 hour after start
+                    }
                 }
             }
 

@@ -44,13 +44,12 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
   // Optional paper trader for balance reset on new market windows
   private paperTrader?: any;
 
-  // Market types to trade on
-  // NOTE: Polymarket replaced 1-hour markets with 5-minute markets
+  // Market types to trade on (15-minute and 1-hour markets)
   private static readonly MARKET_TYPES = [
     'btc-updown-15m',
     'eth-updown-15m',
-    'btc-updown-5m',
-    'eth-updown-5m'
+    'bitcoin-up-or-down',
+    'ethereum-up-or-down'
   ];
 
   constructor(config: any, marketData: MarketDataService, paperTrader?: any) {
@@ -637,14 +636,14 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
    */
   private calculateTradeSize(price: number, marketType: string): number {
     const config = this.rebalanceConfig;
-    const is5m = this.is5MinuteMarket(marketType);
+    const is1h = this.is1HourMarket(marketType);
     const is15m = this.is15MinuteMarket(marketType);
 
     let baseSize: number;
-    if (is5m) {
-      // 5-Minute: most aggressive sizing (fast markets)
-      baseSize = (config.sizing_5m_base ?? 0.25) + (price * (config.sizing_5m_multiplier ?? 20));
-      baseSize = Math.max(config.sizing_5m_min_trade ?? 0.25, Math.min(baseSize, config.sizing_5m_max_trade ?? 40));
+    if (is1h) {
+      // 1-Hour: conservative sizing
+      baseSize = config.sizing_1h_base + (price * config.sizing_1h_multiplier);
+      baseSize = Math.max(config.sizing_1h_min_trade, Math.min(baseSize, config.sizing_1h_max_trade));
     } else if (is15m) {
       // 15-Minute: moderate sizing
       baseSize = config.sizing_15m_base + (price * config.sizing_15m_multiplier);
@@ -672,22 +671,22 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
   /**
    * Get cooldown seconds based on market type
-   * 5-Min: 1 second (fastest)
+   * 1-Hour: 6 seconds (conservative)
    * 15-Min: 1-2 seconds
    */
   private getMarketCooldown(marketType: string): number {
     const config = this.rebalanceConfig;
-    if (this.is5MinuteMarket(marketType)) {
-      return config.sizing_5m_cooldown_sec ?? 1;
+    if (this.is1HourMarket(marketType)) {
+      return config.sizing_1h_cooldown_sec;
     }
     return config.sizing_15m_cooldown_sec;
   }
 
   /**
-   * Check if market type is 5-minute
+   * Check if market type is 1-hour
    */
-  private is5MinuteMarket(marketType: string): boolean {
-    return marketType.includes('5m') || marketType.includes('updown-5');
+  private is1HourMarket(marketType: string): boolean {
+    return marketType.includes('up-or-down') || marketType.includes('1h');
   }
 
   /**
@@ -704,8 +703,8 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     switch (marketType) {
       case 'btc-updown-15m': return 'BTC-15m';
       case 'eth-updown-15m': return 'ETH-15m';
-      case 'btc-updown-5m': return 'BTC-5m';
-      case 'eth-updown-5m': return 'ETH-5m';
+      case 'bitcoin-up-or-down': return 'BTC-1h';
+      case 'ethereum-up-or-down': return 'ETH-1h';
       default: return marketType;
     }
   }
