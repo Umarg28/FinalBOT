@@ -3394,6 +3394,67 @@ export class MarketTracker {
             }
         }
 
+        // Also sync current markets from priceStreamLogger so that 1-hour
+        // markets appear immediately on the dashboard, even before any trades.
+        const currentMarkets = priceStreamLogger.getCurrentMarkets();
+        for (const [marketType, info] of currentMarkets.entries()) {
+            const is15MinType = marketType.includes('15m');
+            const is1HourType = marketType.includes('up-or-down') && !marketType.includes('15m');
+            if (!is15MinType && !is1HourType) continue;
+
+            const isBTCType = marketType.includes('btc') || marketType.includes('bitcoin');
+
+            // Build dashboard marketKey
+            let marketKey: string | null = null;
+            if (is15MinType) {
+                marketKey = isBTCType ? 'BTC-UpDown-15' : 'ETH-UpDown-15';
+            } else if (is1HourType) {
+                // Extract hour number from question or slug (e.g., ", 2PM ET" or "-2pm-et")
+                const question = info.question || '';
+                const slug = (info.slug || '').toLowerCase();
+                let hourNum = '0';
+
+                const questionMatch = question.match(/,\s*(\d{1,2})\s*(AM|PM)\s*ET/i);
+                const slugMatch = slug.match(/-(\d{1,2})(am|pm)-et$/i);
+                if (questionMatch) {
+                    hourNum = questionMatch[1];
+                } else if (slugMatch) {
+                    hourNum = slugMatch[1];
+                }
+
+                marketKey = isBTCType ? `BTC-UpDown-1h-${hourNum}` : `ETH-UpDown-1h-${hourNum}`;
+            }
+
+            if (!marketKey) continue;
+
+            // Determine UP/DOWN asset IDs from tokens
+            let assetUp = '';
+            let assetDown = '';
+            if (info.tokens && info.tokens.length >= 2) {
+                const upToken =
+                    info.tokens.find(t => t.outcome && t.outcome.toUpperCase().includes('UP')) ||
+                    info.tokens[0];
+                const downToken =
+                    info.tokens.find(t => t.outcome && t.outcome.toUpperCase().includes('DOWN')) ||
+                    info.tokens[1];
+
+                assetUp = upToken.token_id;
+                assetDown = downToken.token_id;
+            }
+
+            const endDateMs = info.end_date_iso ? new Date(info.end_date_iso).getTime() : undefined;
+
+            this.ensureMarketWithAssets(
+                marketKey,
+                info.question || info.slug || marketKey,
+                info.slug || '',
+                info.condition_id,
+                assetUp,
+                assetDown,
+                endDateMs
+            );
+        }
+
         // Clean up old slugs from discoveredSlugs (prevent memory leak)
         if (this.discoveredSlugs.size > 50) {
             const oldSlugs = Array.from(this.discoveredSlugs).slice(0, 30);
