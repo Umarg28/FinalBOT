@@ -339,20 +339,20 @@ export class CSVExporter {
     const totalInvested = marketPnL.totalCostBasis;
     const totalPnL = marketPnL.totalPnL;
 
-    // Determine outcome
+    // Determine outcome: the side with the higher price wins
+    // When market closes, winning side = $1.00, losing side = $0.00
     let outcome = 'Unknown';
-    if (finalPriceUp >= 0.99) {
+    if (finalPriceUp >= 0.99 || finalPriceDown <= 0.01) {
       outcome = 'UP Won';
-    } else if (finalPriceUp <= 0.01) {
-      outcome = 'UP Lost';
-    } else if (finalPriceDown >= 0.99) {
+    } else if (finalPriceDown >= 0.99 || finalPriceUp <= 0.01) {
       outcome = 'DOWN Won';
-    } else if (finalPriceDown <= 0.01) {
-      outcome = 'DOWN Lost';
-    } else if (totalPnL > 0) {
-      outcome = 'Profit';
-    } else if (totalPnL < 0) {
-      outcome = 'Loss';
+    } else if (finalPriceUp > 0 || finalPriceDown > 0) {
+      // Determine winner from which side has higher price
+      if (finalPriceUp > finalPriceDown) {
+        outcome = 'UP Won';
+      } else if (finalPriceDown > finalPriceUp) {
+        outcome = 'DOWN Won';
+      }
     }
 
     const now = new Date();

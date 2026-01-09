@@ -204,30 +204,72 @@ export class MarketTracker {
         // Calculate final values and PnL
         const totalInvested = market.investedUp + market.investedDown;
         const totalCostBasis = market.totalCostUp + market.totalCostDown; // Cost basis excludes fees (matches Polymarket API)
-        
+
         let finalValueUp = 0;
         let finalValueDown = 0;
         let pnlUp = 0;
         let pnlDown = 0;
 
-        const finalPriceUp =
+        let rawPriceUp =
             market.closingPriceUp ??
             finalPrices.priceUp ??
             market.currentPriceUp ??
             0;
-        const finalPriceDown =
+        let rawPriceDown =
             market.closingPriceDown ??
             finalPrices.priceDown ??
             market.currentPriceDown ??
             0;
 
-        if (market.sharesUp > 0 && finalPriceUp > 0) {
+        // Determine winner: the side with the higher price wins
+        // When market closes, winning side = $1.00, losing side = $0.00
+        let outcome = 'Unknown';
+        let finalPriceUp = rawPriceUp;
+        let finalPriceDown = rawPriceDown;
+
+        // If prices are already resolved (0.99+ or 0.01-), use them directly
+        if (rawPriceUp >= 0.99 || rawPriceDown >= 0.99 || rawPriceUp <= 0.01 || rawPriceDown <= 0.01) {
+            if (rawPriceUp >= 0.99) {
+                outcome = 'UP Won';
+                finalPriceUp = 1.0;
+                finalPriceDown = 0.0;
+            } else if (rawPriceDown >= 0.99) {
+                outcome = 'DOWN Won';
+                finalPriceUp = 0.0;
+                finalPriceDown = 1.0;
+            } else if (rawPriceUp <= 0.01) {
+                outcome = 'DOWN Won';
+                finalPriceUp = 0.0;
+                finalPriceDown = 1.0;
+            } else if (rawPriceDown <= 0.01) {
+                outcome = 'UP Won';
+                finalPriceUp = 1.0;
+                finalPriceDown = 0.0;
+            }
+        } else if (rawPriceUp > 0 || rawPriceDown > 0) {
+            // Prices not yet resolved - determine winner from which side has higher price
+            // Higher price = more likely to win = winner
+            if (rawPriceUp > rawPriceDown) {
+                outcome = 'UP Won';
+                finalPriceUp = 1.0;
+                finalPriceDown = 0.0;
+            } else if (rawPriceDown > rawPriceUp) {
+                outcome = 'DOWN Won';
+                finalPriceUp = 0.0;
+                finalPriceDown = 1.0;
+            } else {
+                // Equal prices - treat as unknown/tie, use raw prices
+                outcome = 'Tie';
+            }
+        }
+
+        if (market.sharesUp > 0) {
             finalValueUp = market.sharesUp * finalPriceUp;
             // Cost basis excludes fees (matches Polymarket API)
             pnlUp = finalValueUp - market.totalCostUp;
         }
 
-        if (market.sharesDown > 0 && finalPriceDown > 0) {
+        if (market.sharesDown > 0) {
             finalValueDown = market.sharesDown * finalPriceDown;
             // Cost basis excludes fees (matches Polymarket API)
             pnlDown = finalValueDown - market.totalCostDown;
@@ -241,22 +283,6 @@ export class MarketTracker {
         // Calculate average cost per share
         const avgCostUp = market.sharesUp > 0 ? market.totalCostUp / market.sharesUp : 0;
         const avgCostDown = market.sharesDown > 0 ? market.totalCostDown / market.sharesDown : 0;
-
-        // Determine outcome
-        let outcome = 'Unknown';
-        if (finalPriceUp >= 0.99) {
-            outcome = 'UP Won';
-        } else if (finalPriceUp <= 0.01) {
-            outcome = 'UP Lost';
-        } else if (finalPriceDown >= 0.99) {
-            outcome = 'DOWN Won';
-        } else if (finalPriceDown <= 0.01) {
-            outcome = 'DOWN Lost';
-        } else if (totalPnl > 0) {
-            outcome = 'Profit';
-        } else if (totalPnl < 0) {
-            outcome = 'Loss';
-        }
 
         // Create CSV row with full timestamp breakdown
         const timestamp = Date.now();
@@ -1153,39 +1179,81 @@ export class MarketTracker {
     private async recordProfitAtNewMarketOpening(market: MarketStats, newMarket: MarketStats, isSwitching: boolean = false): Promise<void> {
         // Fetch current prices at the time of new market opening (used as fallback)
         const finalPrices = await this.fetchFinalPrices(market);
-        
+
         const totalInvested = market.investedUp + market.investedDown;
-        
+
         // Skip if no investment
         if (totalInvested === 0) {
             return;
         }
-        
+
         const totalCostBasis = market.totalCostUp + market.totalCostDown; // Cost basis excludes fees (matches Polymarket API)
-        
+
         let finalValueUp = 0;
         let finalValueDown = 0;
         let pnlUp = 0;
         let pnlDown = 0;
 
-        const finalPriceUp =
+        let rawPriceUp =
             market.closingPriceUp ??
             finalPrices.priceUp ??
             market.currentPriceUp ??
             0;
-        const finalPriceDown =
+        let rawPriceDown =
             market.closingPriceDown ??
             finalPrices.priceDown ??
             market.currentPriceDown ??
             0;
 
-        if (market.sharesUp > 0 && finalPriceUp > 0) {
+        // Determine winner: the side with the higher price wins
+        // When market closes, winning side = $1.00, losing side = $0.00
+        let outcome = 'Unknown';
+        let finalPriceUp = rawPriceUp;
+        let finalPriceDown = rawPriceDown;
+
+        // If prices are already resolved (0.99+ or 0.01-), use them directly
+        if (rawPriceUp >= 0.99 || rawPriceDown >= 0.99 || rawPriceUp <= 0.01 || rawPriceDown <= 0.01) {
+            if (rawPriceUp >= 0.99) {
+                outcome = 'UP Won';
+                finalPriceUp = 1.0;
+                finalPriceDown = 0.0;
+            } else if (rawPriceDown >= 0.99) {
+                outcome = 'DOWN Won';
+                finalPriceUp = 0.0;
+                finalPriceDown = 1.0;
+            } else if (rawPriceUp <= 0.01) {
+                outcome = 'DOWN Won';
+                finalPriceUp = 0.0;
+                finalPriceDown = 1.0;
+            } else if (rawPriceDown <= 0.01) {
+                outcome = 'UP Won';
+                finalPriceUp = 1.0;
+                finalPriceDown = 0.0;
+            }
+        } else if (rawPriceUp > 0 || rawPriceDown > 0) {
+            // Prices not yet resolved - determine winner from which side has higher price
+            // Higher price = more likely to win = winner
+            if (rawPriceUp > rawPriceDown) {
+                outcome = 'UP Won';
+                finalPriceUp = 1.0;
+                finalPriceDown = 0.0;
+            } else if (rawPriceDown > rawPriceUp) {
+                outcome = 'DOWN Won';
+                finalPriceUp = 0.0;
+                finalPriceDown = 1.0;
+            } else {
+                // Equal prices - treat as unknown/tie, use raw prices
+                outcome = 'Tie';
+            }
+        }
+
+        if (market.sharesUp > 0) {
             finalValueUp = market.sharesUp * finalPriceUp;
             // Cost basis excludes fees (matches Polymarket API)
             pnlUp = finalValueUp - market.totalCostUp;
         }
 
-        if (market.sharesDown > 0 && finalPriceDown > 0) {
+        if (market.sharesDown > 0) {
             finalValueDown = market.sharesDown * finalPriceDown;
             // Cost basis excludes fees (matches Polymarket API)
             pnlDown = finalValueDown - market.totalCostDown;
@@ -1199,22 +1267,6 @@ export class MarketTracker {
         // Calculate average cost per share
         const avgCostUp = market.sharesUp > 0 ? market.totalCostUp / market.sharesUp : 0;
         const avgCostDown = market.sharesDown > 0 ? market.totalCostDown / market.sharesDown : 0;
-
-        // Determine outcome
-        let outcome = 'Unknown';
-        if (finalPriceUp >= 0.99) {
-            outcome = 'UP Won';
-        } else if (finalPriceUp <= 0.01) {
-            outcome = 'UP Lost';
-        } else if (finalPriceDown >= 0.99) {
-            outcome = 'DOWN Won';
-        } else if (finalPriceDown <= 0.01) {
-            outcome = 'DOWN Lost';
-        } else if (totalPnl > 0) {
-            outcome = 'Profit';
-        } else if (totalPnl < 0) {
-            outcome = 'Loss';
-        }
 
         // Log to CSV
         const timestamp = Date.now();

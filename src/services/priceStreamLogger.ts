@@ -262,37 +262,47 @@ class MarketDiscovery {
       }
 
       // =========================================================================
-      // Fetch 1-hour markets using tag_slug and slug_contains
+      // Fetch 1-hour markets using date-based slug pattern
+      // Format: bitcoin-up-or-down-january-{day}-{hour}{am|pm}-et
       // =========================================================================
+      const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
+                          'july', 'august', 'september', 'october', 'november', 'december'];
 
-      // Fetch from tag_slug=up-or-down
+      // Generate slugs for current and next few hours in ET timezone
+      const nowET = new Date(now);
+      // Convert to ET (UTC-5 or UTC-4 depending on DST)
+      const etOffset = -5; // EST (adjust for EDT if needed)
+      nowET.setHours(nowET.getUTCHours() + etOffset);
+
+      for (const prefix of ['bitcoin-up-or-down', 'ethereum-up-or-down']) {
+        // Try current hour and next few hours across today and tomorrow
+        for (let dayOffset = 0; dayOffset <= 2; dayOffset++) {
+          const targetDate = new Date(nowET);
+          targetDate.setDate(targetDate.getDate() + dayOffset);
+          const month = monthNames[targetDate.getMonth()];
+          const day = targetDate.getDate();
+
+          // Try hours from 9am to 4pm ET (typical trading hours)
+          for (let hour = 9; hour <= 16; hour++) {
+            const hour12 = hour > 12 ? hour - 12 : hour;
+            const ampm = hour >= 12 ? 'pm' : 'am';
+            const slug = `${prefix}-${month}-${day}-${hour12}${ampm}-et`;
+            const marketUrl = `${CONFIG.GAMMA_API_URL}?slug=${slug}`;
+            const markets = await this.fetchMarketsFromUrl(marketUrl);
+            allMarkets.push(...markets);
+          }
+        }
+      }
+
+      // Also try legacy queries as backup
       const hourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&active=true&closed=false&limit=100&order=endDate&ascending=true`;
       const hourlyMarkets = await this.fetchMarketsFromUrl(hourlyUrl);
       allMarkets.push(...hourlyMarkets);
 
-      // Also fetch upcoming markets that haven't started yet
-      const upcomingHourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&active=false&closed=false&limit=50&order=endDate&ascending=true`;
-      const upcomingHourlyMarkets = await this.fetchMarketsFromUrl(upcomingHourlyUrl);
-      allMarkets.push(...upcomingHourlyMarkets);
-
-      // Fetch without active filter to catch markets in transition
-      const allHourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&closed=false&limit=100&order=endDate&ascending=true`;
-      const allHourlyMarkets = await this.fetchMarketsFromUrl(allHourlyUrl);
-      allMarkets.push(...allHourlyMarkets);
-
-      // Backup: fetch hourly markets by slug prefix
       for (const hourlyPrefix of ['bitcoin-up-or-down', 'ethereum-up-or-down']) {
-        const hourlyPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=true&closed=false&limit=20`;
+        const hourlyPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&closed=false&limit=20`;
         const prefixMarkets = await this.fetchMarketsFromUrl(hourlyPrefixUrl);
         allMarkets.push(...prefixMarkets);
-
-        const upcomingPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=false&closed=false&limit=10`;
-        const upcomingPrefixMarkets = await this.fetchMarketsFromUrl(upcomingPrefixUrl);
-        allMarkets.push(...upcomingPrefixMarkets);
-
-        const allPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&closed=false&limit=20`;
-        const allPrefixMarkets = await this.fetchMarketsFromUrl(allPrefixUrl);
-        allMarkets.push(...allPrefixMarkets);
       }
 
       // Deduplicate by condition_id

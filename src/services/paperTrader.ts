@@ -233,7 +233,7 @@ export class PaperTrader {
    * @param finalPriceUp - Final price for UP outcome (1.0 if UP won, 0.0 if DOWN won, or mid if not resolved)
    * @param finalPriceDown - Final price for DOWN outcome
    */
-  settleMarket(conditionId: string, finalPriceUp: number, finalPriceDown: number): void {
+  settleMarket(conditionId: string, rawPriceUp: number, rawPriceDown: number): void {
     const positionsToSettle: Position[] = [];
 
     // Find all positions in this market
@@ -246,6 +246,46 @@ export class PaperTrader {
     if (positionsToSettle.length === 0) {
       return; // No positions to settle
     }
+
+    // Determine winner: the side with the higher price wins
+    // When market closes, winning side = $1.00, losing side = $0.00
+    let finalPriceUp = rawPriceUp;
+    let finalPriceDown = rawPriceDown;
+    let outcome = 'Unknown';
+
+    // If prices are already resolved (0.99+ or 0.01-), use them directly
+    if (rawPriceUp >= 0.99 || rawPriceDown >= 0.99 || rawPriceUp <= 0.01 || rawPriceDown <= 0.01) {
+      if (rawPriceUp >= 0.99) {
+        outcome = 'UP Won';
+        finalPriceUp = 1.0;
+        finalPriceDown = 0.0;
+      } else if (rawPriceDown >= 0.99) {
+        outcome = 'DOWN Won';
+        finalPriceUp = 0.0;
+        finalPriceDown = 1.0;
+      } else if (rawPriceUp <= 0.01) {
+        outcome = 'DOWN Won';
+        finalPriceUp = 0.0;
+        finalPriceDown = 1.0;
+      } else if (rawPriceDown <= 0.01) {
+        outcome = 'UP Won';
+        finalPriceUp = 1.0;
+        finalPriceDown = 0.0;
+      }
+    } else if (rawPriceUp > 0 || rawPriceDown > 0) {
+      // Prices not yet resolved - determine winner from which side has higher price
+      if (rawPriceUp > rawPriceDown) {
+        outcome = 'UP Won';
+        finalPriceUp = 1.0;
+        finalPriceDown = 0.0;
+      } else if (rawPriceDown > rawPriceUp) {
+        outcome = 'DOWN Won';
+        finalPriceUp = 0.0;
+        finalPriceDown = 1.0;
+      }
+    }
+
+    logger.paper(`Market settlement: ${outcome} (raw prices: UP=$${rawPriceUp.toFixed(4)}, DOWN=$${rawPriceDown.toFixed(4)})`);
 
     let totalPayout = 0;
 
@@ -261,7 +301,7 @@ export class PaperTrader {
         finalPrice = position.avgPrice;
       }
 
-      // Calculate payout: shares * final price
+      // Calculate payout: shares * final price (winner gets $1 per share, loser gets $0)
       const payout = position.size * finalPrice;
       totalPayout += payout;
 
@@ -962,18 +1002,61 @@ export class PaperTrader {
           }
         }
 
+        // Determine outcome: the side with the higher price wins
+        // When market closes, winning side = $1.00, losing side = $0.00
+        let outcome = "Pending";
+        const priceUp = data.priceUp || 0;
+        const priceDown = data.priceDown || 0;
+
+        // Determine winner based on which side has higher price
+        let settledPriceUp = priceUp;
+        let settledPriceDown = priceDown;
+
+        // Check if market is resolved (one side near 1.0, other near 0.0)
+        if (priceUp >= 0.99 || priceDown <= 0.01) {
+          outcome = "UP Won";
+          settledPriceUp = 1.0;
+          settledPriceDown = 0.0;
+        } else if (priceDown >= 0.99 || priceUp <= 0.01) {
+          outcome = "DOWN Won";
+          settledPriceUp = 0.0;
+          settledPriceDown = 1.0;
+        } else if (priceUp > 0 && priceDown > 0) {
+          // Market not yet resolved - determine winner from which side has higher price
+          // Higher price = more likely to win = winner
+          if (priceUp > priceDown) {
+            outcome = "UP Won";
+            settledPriceUp = 1.0;
+            settledPriceDown = 0.0;
+          } else if (priceDown > priceUp) {
+            outcome = "DOWN Won";
+            settledPriceUp = 0.0;
+            settledPriceDown = 1.0;
+          } else {
+            outcome = "Tie";
+          }
+        }
+
+        // Recalculate PnL using settled binary prices (winner=$1, loser=$0)
+        // This is the ACTUAL profit/loss when market resolves
+        const settledValueUp = sharesUp * settledPriceUp;
+        const settledValueDown = sharesDown * settledPriceDown;
+        const settledTotalValue = settledValueUp + settledValueDown;
+        const settledPnl = settledTotalValue - totalInvested;
+        const settledPnlPercent = totalInvested > 0 ? (settledPnl / totalInvested) * 100 : 0;
+
         markets.push({
           name: marketName,
-          pnl: data.totalPnl,
-          pnlPercent: data.pnlPercent,
+          pnl: settledPnl,
+          pnlPercent: settledPnlPercent,
           avgCostUp,
           avgCostDown,
-          avgPriceUp: data.priceUp || 0,
-          avgPriceDown: data.priceDown || 0,
+          avgPriceUp: priceUp,
+          avgPriceDown: priceDown,
           sharesUp,
           sharesDown,
           totalInvested,
-          outcome: "", // Will be determined from final prices
+          outcome,
           is15Min,
           is1Hour,
           hourWindow,
@@ -1045,27 +1128,36 @@ export class PaperTrader {
           report += `  Market Name: ${market.name}\n`;
           report += `  ${"─".repeat(96)}\n`;
           
-          // Individual PnL (prominent)
-          report += `  Individual PnL: ${pnlSign}$${market.pnl.toFixed(2)} (${pnlSign}${market.pnlPercent.toFixed(2)}%)\n`;
+          // Outcome and settled PnL (prominent)
+          report += `  Outcome: ${market.outcome}\n`;
+          report += `  Settled PnL: ${pnlSign}$${market.pnl.toFixed(2)} (${pnlSign}${market.pnlPercent.toFixed(2)}%)\n`;
           report += `  ${"─".repeat(96)}\n`;
-          
-          // Average Prices
-          if (market.avgPriceUp > 0 || market.avgPriceDown > 0) {
-            report += `  Average Price - UP: $${market.avgPriceUp.toFixed(4)}  |  DOWN: $${market.avgPriceDown.toFixed(4)}\n`;
+
+          // Shares and Payout calculation
+          if (market.sharesUp > 0 || market.sharesDown > 0) {
+            report += `  Shares - UP: ${market.sharesUp.toFixed(2)}  |  DOWN: ${market.sharesDown.toFixed(2)}\n`;
+            // Show payout based on outcome
+            if (market.outcome === "UP Won") {
+              const payout = market.sharesUp * 1.0;
+              report += `  Payout: ${market.sharesUp.toFixed(2)} UP × $1.00 = $${payout.toFixed(2)}  |  ${market.sharesDown.toFixed(2)} DOWN × $0.00 = $0.00\n`;
+            } else if (market.outcome === "DOWN Won") {
+              const payout = market.sharesDown * 1.0;
+              report += `  Payout: ${market.sharesUp.toFixed(2)} UP × $0.00 = $0.00  |  ${market.sharesDown.toFixed(2)} DOWN × $1.00 = $${payout.toFixed(2)}\n`;
+            }
           }
-          
+
+          // Closing Prices (mid-prices at time of capture)
+          if (market.avgPriceUp > 0 || market.avgPriceDown > 0) {
+            report += `  Closing Price - UP: $${market.avgPriceUp.toFixed(4)}  |  DOWN: $${market.avgPriceDown.toFixed(4)}\n`;
+          }
+
           // Average Costs
           if (market.avgCostUp > 0 || market.avgCostDown > 0) {
-            report += `  Average Cost  - UP: $${market.avgCostUp.toFixed(4)}  |  DOWN: $${market.avgCostDown.toFixed(4)}\n`;
+            report += `  Avg Cost      - UP: $${market.avgCostUp.toFixed(4)}  |  DOWN: $${market.avgCostDown.toFixed(4)}\n`;
           }
-          
-          // Shares
-          if (market.sharesUp > 0 || market.sharesDown > 0) {
-            report += `  Shares        - UP: ${market.sharesUp.toFixed(2)}  |  DOWN: ${market.sharesDown.toFixed(2)}\n`;
-          }
-          
-          // Total Invested and Outcome
-          report += `  Total Invested: $${market.totalInvested.toFixed(2)}  |  Outcome: ${market.outcome || "Pending"}\n`;
+
+          // Total Invested
+          report += `  Total Invested: $${market.totalInvested.toFixed(2)}\n`;
           report += `  ${"═".repeat(96)}\n\n`;
 
           windowPnL += market.pnl;
