@@ -282,8 +282,8 @@ class MarketDiscovery {
           const month = monthNames[targetDate.getMonth()];
           const day = targetDate.getDate();
 
-          // Try hours from 9am to 4pm ET (typical trading hours)
-          for (let hour = 9; hour <= 16; hour++) {
+          // Try hours from 9am to 11pm ET (full trading hours)
+          for (let hour = 9; hour <= 23; hour++) {
             const hour12 = hour > 12 ? hour - 12 : hour;
             const ampm = hour >= 12 ? 'pm' : 'am';
             const slug = `${prefix}-${month}-${day}-${hour12}${ampm}-et`;

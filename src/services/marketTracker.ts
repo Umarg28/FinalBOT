@@ -2066,6 +2066,38 @@ export class MarketTracker {
             return true;
         });
 
+        // IMPORTANT: Keep only 1 market per category (BTC-15m, ETH-15m, BTC-1h, ETH-1h)
+        // This prevents duplicate markets from appearing on the dashboard
+        // For each category, keep only the one ending soonest (current active market)
+        const categories = ['BTC-UpDown-15', 'ETH-UpDown-15', 'BTC-UpDown-1h', 'ETH-UpDown-1h'];
+        for (const category of categories) {
+            const marketsInCategory = Array.from(this.markets.entries())
+                .filter(([key]) => key.startsWith(category))
+                .map(([key, market]) => ({ key, market }));
+
+            if (marketsInCategory.length > 1) {
+                // Sort by endDate ascending - keep the one ending soonest (current market)
+                marketsInCategory.sort((a, b) => {
+                    const endA = a.market.endDate || Infinity;
+                    const endB = b.market.endDate || Infinity;
+                    return endA - endB;
+                });
+
+                // Remove all but the first (current) market
+                for (let i = 1; i < marketsInCategory.length; i++) {
+                    const marketToRemove = marketsInCategory[i];
+                    // Log PnL before removing if it has trades
+                    if (marketToRemove.market.investedUp > 0 || marketToRemove.market.investedDown > 0) {
+                        if (this.onPreCloseCallback && !this.preCloseTriggeredMarkets.has(marketToRemove.key)) {
+                            this.preCloseTriggeredMarkets.add(marketToRemove.key);
+                            this.onPreCloseCallback(marketToRemove.market).catch(() => {});
+                        }
+                    }
+                    this.markets.delete(marketToRemove.key);
+                }
+            }
+        }
+
         // Remove closed/stale markets from tracking and log PnL
         // CRITICAL: Trigger pre-close callback for markets about to be closed BEFORE removing them
         const closedMarkets: MarketStats[] = [];
@@ -2735,9 +2767,9 @@ export class MarketTracker {
         const nextHour12 = nextHourDisplay === 0 ? 12 : nextHourDisplay > 12 ? nextHourDisplay - 12 : nextHourDisplay;
         const nextHourStr = `${nextHour12}${nextHourAmPm} ET`;
 
-        // Check what markets we have discovered
-        const hasBTC15m = Array.from(this.markets.values()).some(m => m.marketKey === 'BTC-UpDown-15' && m.endDate && m.endDate > now);
-        const hasETH15m = Array.from(this.markets.values()).some(m => m.marketKey === 'ETH-UpDown-15' && m.endDate && m.endDate > now);
+        // Check what markets we have discovered (use startsWith for 15m since keys now include timestamp)
+        const hasBTC15m = Array.from(this.markets.values()).some(m => m.marketKey.startsWith('BTC-UpDown-15') && m.endDate && m.endDate > now);
+        const hasETH15m = Array.from(this.markets.values()).some(m => m.marketKey.startsWith('ETH-UpDown-15') && m.endDate && m.endDate > now);
         const hasBTC1h = Array.from(this.markets.values()).some(m => m.marketKey.startsWith('BTC-UpDown-1h') && m.endDate && m.endDate > now);
         const hasETH1h = Array.from(this.markets.values()).some(m => m.marketKey.startsWith('ETH-UpDown-1h') && m.endDate && m.endDate > now);
 
@@ -3139,7 +3171,11 @@ export class MarketTracker {
             let marketKey: string;
 
             if (is15Min) {
-                marketKey = isBTC ? 'BTC-UpDown-15' : 'ETH-UpDown-15';
+                // Extract timestamp from slug to create unique key matching extractMarketKey()
+                const tsMatch = slug.match(/updown-15m-(\d+)/);
+                const timestamp = tsMatch ? tsMatch[1] : '';
+                const baseKey = isBTC ? 'BTC-UpDown-15' : 'ETH-UpDown-15';
+                marketKey = timestamp ? `${baseKey}-${timestamp}` : baseKey;
             } else if (is1Hour) {
                 // 1-hour market - extract hour for unique key
                 const hourMatch = slug.match(/(\d+)(am|pm)-et$/i);
@@ -3407,7 +3443,12 @@ export class MarketTracker {
             // Build dashboard marketKey
             let marketKey: string | null = null;
             if (is15MinType) {
-                marketKey = isBTCType ? 'BTC-UpDown-15' : 'ETH-UpDown-15';
+                // Extract timestamp from slug to create unique key matching extractMarketKey()
+                const slug = (info.slug || '').toLowerCase();
+                const tsMatch = slug.match(/updown-15m-(\d+)/);
+                const timestamp = tsMatch ? tsMatch[1] : '';
+                const baseKey = isBTCType ? 'BTC-UpDown-15' : 'ETH-UpDown-15';
+                marketKey = timestamp ? `${baseKey}-${timestamp}` : baseKey;
             } else if (is1HourType) {
                 // Extract hour number from question or slug (e.g., ", 2PM ET" or "-2pm-et")
                 const question = info.question || '';
