@@ -350,13 +350,26 @@ export class PolymarketBot {
         logger.info(`Market closed: ${closedMarket.marketName}`);
 
         // Settle the market - return position value to balance
-        // Use closing prices if available, otherwise use final prices (1.0/0.0 for winner)
-        const finalPriceUp = closedMarket.closingPriceUp ?? closedMarket.currentPriceUp ?? 0.5;
-        const finalPriceDown = closedMarket.closingPriceDown ?? closedMarket.currentPriceDown ?? 0.5;
+        // Use closing prices if available, otherwise use current prices
+        // CRITICAL: Do NOT default to 0.5 - this creates wrong "Tie" outcomes
+        let finalPriceUp = closedMarket.closingPriceUp ?? closedMarket.currentPriceUp;
+        let finalPriceDown = closedMarket.closingPriceDown ?? closedMarket.currentPriceDown;
+
+        // If prices are still not available or look like defaults (both ~0.5), skip PnL logging
+        const pricesLookLikeDefaults = (!finalPriceUp || !finalPriceDown) ||
+          (Math.abs(finalPriceUp - 0.5) < 0.01 && Math.abs(finalPriceDown - 0.5) < 0.01);
+
+        if (pricesLookLikeDefaults) {
+          logger.warn(`⚠️ Market ${closedMarket.marketName} has no valid closing prices (UP: ${finalPriceUp}, DOWN: ${finalPriceDown}) - skipping PnL log to avoid wrong outcome`);
+          // Still settle the market but don't log PnL
+          finalPriceUp = finalPriceUp ?? 0.5;
+          finalPriceDown = finalPriceDown ?? 0.5;
+        }
 
         // Also log PnL when market closes (in case pre-close callback didn't fire)
         // This ensures closed markets are recorded in the text report
-        if (closedMarket.conditionId && (closedMarket.sharesUp > 0 || closedMarket.sharesDown > 0)) {
+        // BUT only if prices are valid (not defaults that would cause wrong "Tie" outcome)
+        if (closedMarket.conditionId && (closedMarket.sharesUp > 0 || closedMarket.sharesDown > 0) && !pricesLookLikeDefaults && finalPriceUp !== undefined && finalPriceDown !== undefined) {
           const finalValueUp = closedMarket.sharesUp * finalPriceUp;
           const finalValueDown = closedMarket.sharesDown * finalPriceDown;
           const pnlUp = closedMarket.sharesUp > 0 ? finalValueUp - closedMarket.totalCostUp : 0;
@@ -365,7 +378,7 @@ export class PolymarketBot {
           const totalCost = closedMarket.totalCostUp + closedMarket.totalCostDown;
           const pnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
 
-          logger.info(`📊 Logging closed market PnL: ${closedMarket.marketName} - ConditionId: ${closedMarket.conditionId} - PnL: $${totalPnl.toFixed(2)}`);
+          logger.info(`📊 Logging closed market PnL: ${closedMarket.marketName} - ConditionId: ${closedMarket.conditionId} - PnL: $${totalPnl.toFixed(2)} (UP: ${finalPriceUp}, DOWN: ${finalPriceDown})`);
 
           // Log market PnL data (stored in memory for TXT report generation)
           // This ensures markets that close without pre-close callback are still recorded
@@ -379,46 +392,89 @@ export class PolymarketBot {
             finalPriceUp,
             finalPriceDown
           );
-        } else {
+        } else if (!closedMarket.conditionId || (closedMarket.sharesUp === 0 && closedMarket.sharesDown === 0)) {
           logger.warn(`⚠️ Skipping PnL log for closed market: ${closedMarket.marketName} - ConditionId: ${closedMarket.conditionId || 'missing'} - Shares: Up=${closedMarket.sharesUp}, Down=${closedMarket.sharesDown}`);
         }
 
+        // Settle the market with whatever prices we have (default to 0.5 if needed for settlement only)
         this.paperTrader.settleMarket(
           closedMarket.conditionId || "",
-          finalPriceUp,
-          finalPriceDown
+          finalPriceUp ?? 0.5,
+          finalPriceDown ?? 0.5
         );
       });
 
       // Set up pre-close callback to log PNL 5 seconds before market ends
-      // This captures the exact PnL shown on the dashboard
+      // CRITICAL: This captures the FINAL PnL with settlement prices (1.0 winner, 0.0 loser)
       marketTracker.setPreCloseCallback(async (market) => {
-        // Calculate PnL exactly like the dashboard does
-        const finalPriceUp = market.currentPriceUp ?? 0.5;
-        const finalPriceDown = market.currentPriceDown ?? 0.5;
+        // CRITICAL: Capture all data IMMEDIATELY to prevent race conditions with market switch
+        const capturedData = {
+          marketName: market.marketName,
+          conditionId: market.conditionId,
+          marketKey: market.marketKey,
+          sharesUp: market.sharesUp,
+          sharesDown: market.sharesDown,
+          totalCostUp: market.totalCostUp,
+          totalCostDown: market.totalCostDown,
+          currentPriceUp: market.currentPriceUp,
+          currentPriceDown: market.currentPriceDown,
+        };
 
-        const finalValueUp = market.sharesUp * finalPriceUp;
-        const finalValueDown = market.sharesDown * finalPriceDown;
+        // Skip if no conditionId (can't track without it)
+        if (!capturedData.conditionId) {
+          logger.warn(`⚠️ Skipping pre-close PnL for ${capturedData.marketName} - no conditionId`);
+          return;
+        }
 
-        const pnlUp = market.sharesUp > 0 ? finalValueUp - market.totalCostUp : 0;
-        const pnlDown = market.sharesDown > 0 ? finalValueDown - market.totalCostDown : 0;
-        const totalPnl = pnlUp + pnlDown;
+        // Skip if no shares traded
+        if (capturedData.sharesUp === 0 && capturedData.sharesDown === 0) {
+          return;
+        }
 
-        const totalCost = market.totalCostUp + market.totalCostDown;
-        const pnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+        // CRITICAL: Must have valid prices to determine winner
+        if (!capturedData.currentPriceUp || !capturedData.currentPriceDown) {
+          logger.warn(`⚠️ Skipping pre-close PnL for ${capturedData.marketName} - prices not available (UP: ${capturedData.currentPriceUp}, DOWN: ${capturedData.currentPriceDown})`);
+          return;
+        }
 
-        logger.info(`📊 Market ending in 5s: ${market.marketName} - PnL: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}%)`);
+        // Determine winner based on current prices and set SETTLEMENT prices (1.0/0.0)
+        let settledPriceUp: number;
+        let settledPriceDown: number;
+        let outcome: string;
 
-        // Log market PnL data (stored in memory for TXT report generation)
+        if (capturedData.currentPriceUp > capturedData.currentPriceDown) {
+          // UP wins - UP shares pay $1, DOWN shares pay $0
+          settledPriceUp = 1.0;
+          settledPriceDown = 0.0;
+          outcome = "UP Won";
+        } else {
+          // DOWN wins - DOWN shares pay $1, UP shares pay $0
+          settledPriceUp = 0.0;
+          settledPriceDown = 1.0;
+          outcome = "DOWN Won";
+        }
+
+        // Calculate SETTLED PnL (what you actually get when market resolves)
+        const settledValueUp = capturedData.sharesUp * settledPriceUp;
+        const settledValueDown = capturedData.sharesDown * settledPriceDown;
+        const totalPayout = settledValueUp + settledValueDown;
+        const totalInvested = capturedData.totalCostUp + capturedData.totalCostDown;
+        const settledPnl = totalPayout - totalInvested;
+        const settledPnlPercent = totalInvested > 0 ? (settledPnl / totalInvested) * 100 : 0;
+
+        logger.info(`📊 Market ending in 5s: ${capturedData.marketName} - ${outcome} - Settled PnL: ${settledPnl >= 0 ? '+' : ''}$${settledPnl.toFixed(2)} (${settledPnlPercent >= 0 ? '+' : ''}${settledPnlPercent.toFixed(1)}%) [UP: ${capturedData.currentPriceUp.toFixed(4)}, DOWN: ${capturedData.currentPriceDown.toFixed(4)}]`);
+
+        // Log market PnL data with SETTLEMENT prices (1.0/0.0)
+        // This ensures the report shows accurate settled PnL, not unrealized PnL
         this.paperTrader.logMarketPnLFromDashboard(
-          market.marketName || "Unknown",
-          market.conditionId || "",
-          totalPnl,
-          pnlPercent,
-          market.sharesUp,
-          market.sharesDown,
-          finalPriceUp,
-          finalPriceDown
+          capturedData.marketName || "Unknown",
+          capturedData.conditionId,
+          settledPnl,
+          settledPnlPercent,
+          capturedData.sharesUp,
+          capturedData.sharesDown,
+          settledPriceUp,  // Use settlement price (1.0 or 0.0)
+          settledPriceDown // Use settlement price (0.0 or 1.0)
         );
       });
     }

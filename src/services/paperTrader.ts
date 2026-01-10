@@ -1033,7 +1033,9 @@ export class PaperTrader {
             settledPriceUp = 0.0;
             settledPriceDown = 1.0;
           } else {
-            outcome = "Tie";
+            // Prices are exactly equal - this shouldn't happen in real markets
+            // Skip this market from the report as we can't determine outcome
+            outcome = "Unknown";
           }
         }
 
