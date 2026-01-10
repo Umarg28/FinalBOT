@@ -368,13 +368,34 @@ class MarketDiscovery {
               outcome: outcomeNames[idx] || (idx === 0 ? 'Up' : 'Down'),
             }));
 
-            const startTime = event.startTime || market.eventStartTime || market.endDate;
+            const endDateIso = market.endDate || event.endDate;
+
+            // Derive a reliable start time:
+            // - Prefer explicit start times from the API
+            // - For 1-hour Up/Down markets that often miss startTime,
+            //   derive start = end - 1 hour so they appear as "current"
+            //   as soon as the hour window opens.
+            let startTime = event.startTime || market.eventStartTime;
+
+            if (!startTime && endDateIso && marketType && marketType.includes('up-or-down')) {
+              // 1-hour Bitcoin/Ethereum Up or Down market
+              const endMs = new Date(endDateIso).getTime();
+              if (!Number.isNaN(endMs)) {
+                const startMs = endMs - 60 * 60 * 1000; // 1 hour before end
+                startTime = new Date(startMs).toISOString();
+              }
+            }
+
+            // Fallback: if we still don't have a startTime, use endDateIso (legacy behaviour)
+            if (!startTime) {
+              startTime = endDateIso;
+            }
 
             markets.push({
               condition_id: market.conditionId,
               slug: market.slug || event.slug,
               question: market.question || event.title,
-              end_date_iso: market.endDate || event.endDate,
+              end_date_iso: endDateIso,
               start_time_iso: startTime,
               tokens,
               closed: market.closed || event.closed,
