@@ -282,9 +282,10 @@ class MarketDiscovery {
           const month = monthNames[targetDate.getMonth()];
           const day = targetDate.getDate();
 
-          // Try hours from 9am to 11pm ET (full trading hours)
-          for (let hour = 9; hour <= 23; hour++) {
-            const hour12 = hour > 12 ? hour - 12 : hour;
+          // Try ALL hours (0-23) to catch any market that might exist
+          for (let hour = 0; hour <= 23; hour++) {
+            // Convert 24-hour to 12-hour format correctly
+            const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
             const ampm = hour >= 12 ? 'pm' : 'am';
             const slug = `${prefix}-${month}-${day}-${hour12}${ampm}-et`;
             const marketUrl = `${CONFIG.GAMMA_API_URL}?slug=${slug}`;

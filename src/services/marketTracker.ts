@@ -3150,11 +3150,42 @@ export class MarketTracker {
         const nextAmpm = ampm === 'am' && hour === 11 ? 'pm' : ampm === 'pm' && hour === 11 ? 'am' : ampm;
         const nextHourSlug = `${nextHour}${nextAmpm}`;
 
+        // Check minutes - if within 5 minutes of next hour, aggressively fetch next hour's markets
+        const minutes = new Date(now).getMinutes();
+        const secondsUntilNextHour = (60 - minutes) * 60 - new Date(now).getSeconds();
+        const withinPreFetchWindow = secondsUntilNextHour <= 300; // 5 minutes = 300 seconds
+
+        // Next hour's day (handles midnight rollover)
+        let nextHourDay = day;
+        let nextHourMonth = month;
+        if (hour === 11 && ampm === 'pm') {
+            // 11 PM -> 12 AM next day
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowET = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                month: 'long',
+                day: 'numeric',
+            }).formatToParts(tomorrow);
+            nextHourDay = tomorrowET.find(p => p.type === 'day')?.value || day;
+            nextHourMonth = tomorrowET.find(p => p.type === 'month')?.value?.toLowerCase() || month;
+        }
+
+        // Build next hour slugs
+        const nextHourBtcSlug = `bitcoin-up-or-down-${nextHourMonth}-${nextHourDay}-${nextHourSlug}-et`;
+        const nextHourEthSlug = `ethereum-up-or-down-${nextHourMonth}-${nextHourDay}-${nextHourSlug}-et`;
+
+        // If within 5 minutes of next hour, clear next hour slugs from cache to force re-fetch
+        if (withinPreFetchWindow) {
+            this.discoveredSlugs.delete(nextHourBtcSlug);
+            this.discoveredSlugs.delete(nextHourEthSlug);
+        }
+
         slugsToCheck.push(
             `bitcoin-up-or-down-${month}-${day}-${currentHourSlug}-et`,
             `ethereum-up-or-down-${month}-${day}-${currentHourSlug}-et`,
-            `bitcoin-up-or-down-${month}-${day}-${nextHourSlug}-et`,
-            `ethereum-up-or-down-${month}-${day}-${nextHourSlug}-et`,
+            nextHourBtcSlug,
+            nextHourEthSlug,
         );
 
         // Fetch all slugs in parallel for speed
@@ -3273,42 +3304,71 @@ export class MarketTracker {
                     endDate = startTime + (15 * 60 * 1000); // 15 minutes after start
                 }
             } else if (is1Hour) {
-                // For 1-hour markets: try API first, then calculate from slug
-                if (market.endDate) {
-                    endDate = typeof market.endDate === 'string'
-                        ? new Date(market.endDate).getTime()
-                        : market.endDate < 10000000000 ? market.endDate * 1000 : market.endDate;
-                } else if (event.endDate) {
-                    endDate = typeof event.endDate === 'string'
-                        ? new Date(event.endDate).getTime()
-                        : event.endDate < 10000000000 ? event.endDate * 1000 : event.endDate;
+                // For 1-hour markets: ALWAYS calculate from slug first (most reliable)
+                // Then validate against API endDate if available
+                const hourlyMatch = slug.match(/-(\w+)-(\d+)-(\d{1,2})(am|pm)-et$/i);
+                if (hourlyMatch) {
+                    const monthName = hourlyMatch[1];
+                    const dayNum = parseInt(hourlyMatch[2], 10);
+                    let hourNum = parseInt(hourlyMatch[3], 10);
+                    const ampmVal = hourlyMatch[4].toLowerCase();
+
+                    // Convert 12-hour to 24-hour format
+                    if (ampmVal === 'pm' && hourNum !== 12) hourNum += 12;
+                    if (ampmVal === 'am' && hourNum === 12) hourNum = 0;
+
+                    const months: {[key: string]: number} = {
+                        january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+                        july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+                    };
+                    const monthNum = months[monthName.toLowerCase()] ?? new Date().getMonth();
+                    const year = new Date().getFullYear();
+
+                    // Create date in ET timezone - market ENDS at the hour, so if slug says "7am",
+                    // the market ends at 7:00 AM ET (runs from 6:00 AM to 7:00 AM)
+                    // Actually, markets START at the hour and END 1 hour later
+                    // So "7am" market starts at 7:00 AM ET and ends at 8:00 AM ET
+                    const startHour = hourNum;
+                    const endHour = startHour + 1;
+
+                    // Use Intl to properly handle ET timezone
+                    const etDate = new Date();
+                    etDate.setFullYear(year, monthNum, dayNum);
+                    etDate.setHours(endHour, 0, 0, 0);
+
+                    // Convert to UTC by parsing as ET
+                    const etDateStr = `${year}-${String(monthNum + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}T${String(endHour).padStart(2, '0')}:00:00`;
+                    const formatter = new Intl.DateTimeFormat('en-US', {
+                        timeZone: 'America/New_York',
+                        year: 'numeric', month: '2-digit', day: '2-digit',
+                        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                    });
+
+                    // Parse the ET time properly
+                    const tempDate = new Date(`${etDateStr}`);
+                    // Adjust for timezone - ET is UTC-5 (EST) or UTC-4 (EDT)
+                    const jan = new Date(year, 0, 1);
+                    const jul = new Date(year, 6, 1);
+                    const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+                    const isDST = tempDate.getTimezoneOffset() < stdOffset;
+                    const etOffsetHours = isDST ? -4 : -5;
+
+                    // endDate is when market ends (startHour + 1 hour) in UTC
+                    endDate = Date.UTC(year, monthNum, dayNum, endHour - etOffsetHours, 0, 0);
                 }
 
-                // Fallback: calculate from slug
-                if (!endDate) {
-                    const hourlyMatch = slug.match(/(\w+)-(\d+)-(\d{1,2})(am|pm)-et$/i);
-                    if (hourlyMatch) {
-                        const monthName = hourlyMatch[1];
-                        const dayNum = parseInt(hourlyMatch[2], 10);
-                        let hourNum = parseInt(hourlyMatch[3], 10);
-                        const ampmVal = hourlyMatch[4].toLowerCase();
-                        if (ampmVal === 'pm' && hourNum !== 12) hourNum += 12;
-                        if (ampmVal === 'am' && hourNum === 12) hourNum = 0;
+                // Validate against API endDate if available
+                if (market.endDate || event.endDate) {
+                    const apiEndDate = market.endDate || event.endDate;
+                    const apiEndDateMs = typeof apiEndDate === 'string'
+                        ? new Date(apiEndDate).getTime()
+                        : apiEndDate < 10000000000 ? apiEndDate * 1000 : apiEndDate;
 
-                        const months: {[key: string]: number} = {
-                            january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
-                            july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
-                        };
-                        const monthNum = months[monthName.toLowerCase()] ?? 0;
-                        const year = new Date().getFullYear();
-
-                        // Create ET time and convert to UTC
-                        const etDateStr = `${year}-${String(monthNum + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}T${String(hourNum).padStart(2, '0')}:00:00`;
-                        const tempDate = new Date(etDateStr);
-                        const etOffset = new Date(tempDate.toLocaleString('en-US', { timeZone: 'America/New_York' })).getTime() -
-                                         new Date(tempDate.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
-                        const startTimeUTC = tempDate.getTime() - etOffset;
-                        endDate = startTimeUTC + (60 * 60 * 1000); // 1 hour after start
+                    // Use API endDate if our calculation seems off by more than 5 minutes
+                    if (endDate && Math.abs(apiEndDateMs - endDate) > 5 * 60 * 1000) {
+                        endDate = apiEndDateMs;
+                    } else if (!endDate) {
+                        endDate = apiEndDateMs;
                     }
                 }
             }
