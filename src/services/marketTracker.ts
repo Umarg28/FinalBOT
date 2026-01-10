@@ -3206,6 +3206,22 @@ export class MarketTracker {
                 // Don't return null - continue to fetch and replace
             }
 
+            // For 1-hour markets, check if existing is still active and from current hour
+            if (is1Hour && existingMarket) {
+                // If existing market has ended or is about to end (< 1 min left), replace it
+                if (existingMarket.endDate && existingMarket.endDate <= now + 60000) {
+                    // Market ended or ending soon - need to fetch new one
+                    // Remove from discovered slugs to allow re-fetch
+                    if (existingMarket.marketSlug) {
+                        this.discoveredSlugs.delete(existingMarket.marketSlug);
+                    }
+                } else if (existingMarket.marketSlug === slug && existingMarket.endDate && existingMarket.endDate > now) {
+                    // Same market, still active - skip
+                    this.discoveredSlugs.add(slug);
+                    return null;
+                }
+            }
+
             try {
                 const url = `https://gamma-api.polymarket.com/events?slug=${slug}`;
                 const data = await fetchData(url).catch(() => null);
@@ -3357,14 +3373,30 @@ export class MarketTracker {
             // Add new market (or update if exists)
             const existingMarket = this.markets.get(marketKey);
             
-            // For 1-hour markets: don't replace if it's the same market and still active
-            if (!is15Min && existingMarket && existingMarket.marketSlug === slug) {
-                // Same 1-hour market - just update endDate if needed, but don't reset
-                if (endDate && (!existingMarket.endDate || Math.abs(existingMarket.endDate - endDate) > 60000)) {
-                    existingMarket.endDate = endDate;
+            // For 1-hour markets: check if we need to replace with new hour's market
+            if (!is15Min && existingMarket) {
+                // If existing market has ended, remove it to make way for new one
+                if (existingMarket.endDate && existingMarket.endDate <= now) {
+                    // Log PnL before removing
+                    if (existingMarket.investedUp > 0 || existingMarket.investedDown > 0) {
+                        if (this.onPreCloseCallback && !this.preCloseTriggeredMarkets.has(marketKey)) {
+                            this.preCloseTriggeredMarkets.add(marketKey);
+                            this.onPreCloseCallback(existingMarket).catch(() => {});
+                        }
+                    }
+                    // Remove old slug from cache
+                    if (existingMarket.marketSlug) {
+                        this.discoveredSlugs.delete(existingMarket.marketSlug);
+                    }
+                    this.markets.delete(marketKey);
+                } else if (existingMarket.marketSlug === slug && existingMarket.endDate && existingMarket.endDate > now) {
+                    // Same 1-hour market, still active - just update endDate if needed
+                    if (endDate && (!existingMarket.endDate || Math.abs(existingMarket.endDate - endDate) > 60000)) {
+                        existingMarket.endDate = endDate;
+                    }
+                    this.discoveredSlugs.add(slug);
+                    continue; // Skip creating new market - keep existing one
                 }
-                this.discoveredSlugs.add(slug);
-                continue; // Skip creating new market - keep existing one
             }
             
             if (!existingMarket || existingMarket.marketSlug !== slug) {
@@ -3496,7 +3528,22 @@ export class MarketTracker {
             );
         }
 
-        // Clean up old slugs from discoveredSlugs (prevent memory leak)
+        // Clean up old slugs from discoveredSlugs - be aggressive for 1-hour markets
+        // Remove 1-hour slugs that don't match the current or next hour
+        const currentHourPattern = new RegExp(`-${hour}${ampm}-et$`, 'i');
+        const nextHourPattern = new RegExp(`-${nextHour}${nextAmpm}-et$`, 'i');
+
+        for (const cachedSlug of this.discoveredSlugs) {
+            // Check if it's a 1-hour slug (contains 'up-or-down' but not '15m')
+            if (cachedSlug.includes('up-or-down') && !cachedSlug.includes('15m')) {
+                // Keep only current and next hour slugs
+                if (!currentHourPattern.test(cachedSlug) && !nextHourPattern.test(cachedSlug)) {
+                    this.discoveredSlugs.delete(cachedSlug);
+                }
+            }
+        }
+
+        // Also clean up if too many slugs (prevent memory leak)
         if (this.discoveredSlugs.size > 50) {
             const oldSlugs = Array.from(this.discoveredSlugs).slice(0, 30);
             for (const s of oldSlugs) {
