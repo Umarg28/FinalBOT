@@ -3108,7 +3108,8 @@ export class MarketTracker {
      * Matches paper mode's aggressive discovery technique
      */
     private lastProactiveDiscovery = 0;
-    private proactiveDiscoveryInterval = 1000; // Check every 1 second for fast switching
+    // Slightly slower to avoid hitting Gamma API rate limits, while still feeling real-time
+    private proactiveDiscoveryInterval = 3000; // Check every 3 seconds
     private discoveredSlugs: Set<string> = new Set(); // Track already discovered slugs
 
     async proactivelyDiscover15MinMarkets(): Promise<void> {
@@ -3177,22 +3178,24 @@ export class MarketTracker {
             nextHourMonth = tomorrowET.find(p => p.type === 'month')?.value?.toLowerCase() || month;
         }
 
-        // Build next hour slugs
+        // Build next hour slugs (1-hour markets) for reference, but do NOT
+        // aggressively fetch them via the Gamma API here. Hourly markets are
+        // already discovered by priceStreamLogger, and hammering the slug
+        // endpoint caused 429 rate limits and delayed ETH-1h discovery.
         const nextHourBtcSlug = `bitcoin-up-or-down-${nextHourMonth}-${nextHourDay}-${nextHourSlug}-et`;
         const nextHourEthSlug = `ethereum-up-or-down-${nextHourMonth}-${nextHourDay}-${nextHourSlug}-et`;
 
-        // If within 5 minutes of next hour, clear next hour slugs from cache to force re-fetch
+        // If within 5 minutes of next hour, clear next hour slugs from cache to force re-sync
         if (withinPreFetchWindow) {
             this.discoveredSlugs.delete(nextHourBtcSlug);
             this.discoveredSlugs.delete(nextHourEthSlug);
         }
 
-        slugsToCheck.push(
-            `bitcoin-up-or-down-${month}-${day}-${currentHourSlug}-et`,
-            `ethereum-up-or-down-${month}-${day}-${currentHourSlug}-et`,
-            nextHourBtcSlug,
-            nextHourEthSlug,
-        );
+        // NOTE: We intentionally do not push the 1-hour slugs into slugsToCheck
+        // any more. Hourly markets are synced from priceStreamLogger below,
+        // which already performs its own (now rate-limited) discovery. This
+        // keeps dashboard behaviour correct while avoiding duplicate slug
+        // requests that were triggering 429s.
 
         // Fetch all slugs in parallel for speed
         const fetchPromises = slugsToCheck.map(async (slug) => {
@@ -3214,21 +3217,17 @@ export class MarketTracker {
                 const baseKey = isBTC ? 'BTC-UpDown-15' : 'ETH-UpDown-15';
                 marketKey = timestamp ? `${baseKey}-${timestamp}` : baseKey;
             } else if (is1Hour) {
-                // 1-hour market - extract hour for unique key
-                const hourMatch = slug.match(/(\d+)(am|pm)-et$/i);
-                const hourNum = hourMatch ? hourMatch[1] : '0';
-                marketKey = isBTC ? `BTC-UpDown-1h-${hourNum}` : `ETH-UpDown-1h-${hourNum}`;
+                // Skip direct 1-hour slug discovery here and rely on
+                // priceStreamLogger's MarketDiscovery instead. This avoids
+                // duplicated Gamma API calls which were being rate limited.
+                return null;
             } else {
                 // Unknown format - skip
                 return null;
             }
 
-            // DEBUG: Log which slugs we're probing for 1-hour and 15-minute discovery
-            if (is1Hour) {
-                console.debug(
-                    `[MARKET-TRACKER DEBUG] Probing 1h slug=${slug} -> marketKey=${marketKey}`
-                );
-            } else if (is15Min && slug.includes('updown-15m')) {
+            // DEBUG: Log which slugs we're probing for 15-minute discovery
+            if (is15Min && slug.includes('updown-15m')) {
                 console.debug(
                     `[MARKET-TRACKER DEBUG] Probing 15m slug=${slug} -> marketKey=${marketKey}`
                 );
@@ -3252,22 +3251,6 @@ export class MarketTracker {
                 }
                 // If timestamps don't match, we need to replace the old market
                 // Don't return null - continue to fetch and replace
-            }
-
-            // For 1-hour markets, check if existing is still active and from current hour
-            if (is1Hour && existingMarket) {
-                // If existing market has ended or is about to end (< 1 min left), replace it
-                if (existingMarket.endDate && existingMarket.endDate <= now + 60000) {
-                    // Market ended or ending soon - need to fetch new one
-                    // Remove from discovered slugs to allow re-fetch
-                    if (existingMarket.marketSlug) {
-                        this.discoveredSlugs.delete(existingMarket.marketSlug);
-                    }
-                } else if (existingMarket.marketSlug === slug && existingMarket.endDate && existingMarket.endDate > now) {
-                    // Same market, still active - skip
-                    this.discoveredSlugs.add(slug);
-                    return null;
-                }
             }
 
             try {

@@ -933,6 +933,7 @@ class PriceStreamLogger {
   private isStarted = false;
   private currentAssetIds: string[] = [];
   private pendingRows: Map<string, PendingRow> = new Map();
+  private lastDiscoveryTime = 0; // Throttle expensive market discovery calls
 
   // For trade entry marking
   private loggedTradeEntries: Set<string> = new Set();
@@ -1008,6 +1009,16 @@ class PriceStreamLogger {
   }
 
   private async discoverAndConnect(): Promise<void> {
+    const now = Date.now();
+    const MIN_DISCOVERY_INTERVAL_MS = 3000; // Avoid hammering Gamma API during switches
+
+    // Throttle discovery to at most once every few seconds
+    if (now - this.lastDiscoveryTime < MIN_DISCOVERY_INTERVAL_MS) {
+      log('debug', 'Skipping market discovery - using recently discovered markets');
+      return;
+    }
+    this.lastDiscoveryTime = now;
+
     log('info', 'Discovering Up/Down markets...');
 
     const currentMarkets = await this.marketDiscovery.findCurrentMarketsForAllTypes();
