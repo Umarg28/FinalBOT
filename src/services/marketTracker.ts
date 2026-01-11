@@ -5,6 +5,7 @@ import { ENV } from '../config/env';
 import fetchData from '../utils/fetchData';
 import priceStreamLogger from './priceStreamLogger';
 import { getRunId } from '../utils/runId';
+import logger from '../utils/logger';
 
 /**
  * Helper function to break down timestamp into detailed components
