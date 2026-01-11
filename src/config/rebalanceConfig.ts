@@ -77,6 +77,14 @@ export interface RebalanceConfig {
   flip_response_multiplier: number;
   post_flip_cooldown_sec: number;
 
+  // Adaptive position sizing (ML-ready: adjusts based on current PnL)
+  adaptive_sizing_enabled: boolean;
+  recovery_multiplier: number; // When losing, increase position size by this multiplier (e.g. 1.2 = 20% increase)
+  profit_lock_multiplier: number; // When winning, reduce position size by this multiplier (e.g. 0.8 = 20% reduction)
+  max_recovery_multiplier: number; // Maximum recovery multiplier (e.g. 1.5 = never increase more than 50%)
+  max_loss_per_market: number; // Stop trading this market if loss exceeds this $ amount (e.g. 50.0)
+  max_recovery_bet_pct: number; // Maximum % of balance to use for recovery bets (e.g. 0.10 = 10% of balance max)
+
   // Logging / tuning helpers
   log_every_trade: boolean;
   metrics_window_trades: number;
@@ -137,6 +145,13 @@ const DEFAULT_CONFIG: RebalanceConfig = {
   flip_detection_window_sec: 30,
   flip_response_multiplier: 1.5,
   post_flip_cooldown_sec: 15,
+  // Adaptive position sizing (ML-ready: adjusts based on current PnL)
+  adaptive_sizing_enabled: false,
+  recovery_multiplier: 1.2, // When losing, increase position size by 20%
+  profit_lock_multiplier: 0.8, // When winning, reduce position size by 20%
+  max_recovery_multiplier: 1.5, // Maximum 50% increase
+  max_loss_per_market: 100.0, // Stop trading if loss > $100
+  max_recovery_bet_pct: 0.10, // Max 10% of balance for recovery bets
   log_every_trade: true,
   metrics_window_trades: 100,
   market_condition_id: "",

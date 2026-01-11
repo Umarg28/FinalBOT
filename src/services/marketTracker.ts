@@ -1457,6 +1457,15 @@ export class MarketTracker {
                 if (timestamp15Match) {
                     const startTime = parseInt(timestamp15Match[1], 10) * 1000;
                     endDate = startTime + (15 * 60 * 1000); // 15 minutes from start
+                    
+                    // Validate: endDate should not be more than 16 minutes in the future
+                    const now = Date.now();
+                    const timeUntilEnd = endDate - now;
+                    if (timeUntilEnd > 16 * 60 * 1000) {
+                        logger.warn(`⚠️ Calculated endDate for ${marketKey} seems wrong: ${(timeUntilEnd/1000/60).toFixed(1)}min until end (expected <16min). Recalculating...`);
+                        // Recalculate - maybe the timestamp in slug is wrong, use current time + 15min as fallback
+                        endDate = now + (15 * 60 * 1000);
+                    }
                 }
             } else {
                 // For hourly markets: try API first, then calculate from slug
@@ -1578,7 +1587,16 @@ export class MarketTracker {
                 const timestamp15Match = slugForEndDate.match(/updown-15m-(\d+)/);
                 if (timestamp15Match) {
                     const startTime = parseInt(timestamp15Match[1], 10) * 1000;
-                    market.endDate = startTime + (15 * 60 * 1000); // 15 minutes from start
+                    const calculatedEndDate = startTime + (15 * 60 * 1000); // 15 minutes from start
+                    
+                    // Validate: endDate should not be more than 16 minutes in the future
+                    const now = Date.now();
+                    const timeUntilEnd = calculatedEndDate - now;
+                    if (timeUntilEnd > 16 * 60 * 1000) {
+                        logger.warn(`⚠️ Calculated endDate for existing market ${marketKey} seems wrong: ${(timeUntilEnd/1000/60).toFixed(1)}min until end (expected <16min). Keeping existing endDate.`);
+                    } else {
+                        market.endDate = calculatedEndDate;
+                    }
                 }
             } else if (!market.endDate) {
                 // For hourly markets: use API if available, otherwise calculate
@@ -2226,12 +2244,28 @@ export class MarketTracker {
                 !this.preCloseTriggeredMarkets.has(m.marketKey)
             ) {
                 const timeUntilEnd = m.endDate - now;
-                if (timeUntilEnd <= PRE_CLOSE_SECONDS && timeUntilEnd > 0) {
+                
+                // CRITICAL: Validate endDate is reasonable before triggering callback
+                // For 15-min markets: endDate should be within 0-16 minutes from now
+                // For 1-hour markets: endDate should be within 0-65 minutes from now
+                const is15Min = m.marketKey.includes('-15');
+                const maxTimeUntilEnd = is15Min ? 16 * 60 * 1000 : 65 * 60 * 1000;
+                const isEndDateReasonable = timeUntilEnd >= 0 && timeUntilEnd <= maxTimeUntilEnd;
+                
+                // Only trigger if:
+                // 1. We're within 5 seconds of end (timeUntilEnd <= 5s and > 0)
+                // 2. endDate is reasonable (not in distant future)
+                if (timeUntilEnd <= PRE_CLOSE_SECONDS && timeUntilEnd > 0 && isEndDateReasonable) {
                     // CRITICAL: Force fetch prices BEFORE triggering pre-close callback
                     // This ensures prices are available even if WebSocket switched early
                     if (!m.currentPriceUp || !m.currentPriceDown) {
                         await this.fetchCurrentPrices(m, true); // Force fetch
                     }
+                    
+                    // Log timing info for debugging
+                    const endDateStr = new Date(m.endDate).toLocaleString('en-US', { timeZone: 'America/New_York' });
+                    const nowStr = new Date(now).toLocaleString('en-US', { timeZone: 'America/New_York' });
+                    logger.info(`⏰ Pre-close callback triggered for ${m.marketName}: endDate=${endDateStr}, now=${nowStr}, timeUntilEnd=${(timeUntilEnd/1000).toFixed(1)}s`);
                     
                     this.preCloseTriggeredMarkets.add(m.marketKey);
                     try {
@@ -2239,6 +2273,9 @@ export class MarketTracker {
                     } catch (error) {
                         console.error(`Error in pre-close callback for ${m.marketKey}:`, error);
                     }
+                } else if (timeUntilEnd <= PRE_CLOSE_SECONDS && timeUntilEnd > 0 && !isEndDateReasonable) {
+                    // Log warning if endDate seems wrong
+                    logger.warn(`⚠️ Skipping pre-close callback for ${m.marketName}: endDate seems incorrect (timeUntilEnd=${(timeUntilEnd/1000).toFixed(1)}s, max expected=${(maxTimeUntilEnd/1000/60).toFixed(1)}min)`);
                 }
             }
         }

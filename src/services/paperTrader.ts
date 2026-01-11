@@ -192,6 +192,14 @@ export class PaperTrader {
         totalCostBasis: sharesUp > 0 || sharesDown > 0 ? totalPnl / (pnlPercent / 100) : 0
       };
       
+      // Store timestamp as when PnL was captured (current time)
+      // This should be ~5 seconds before market actually ends
+      const captureTimestamp = Date.now();
+      const captureTimeStr = new Date(captureTimestamp).toLocaleString('en-US', { timeZone: 'America/New_York' });
+      
+      // Log when PnL is being captured for debugging
+      logger.info(`📊 Capturing PnL for ${marketName} at ${captureTimeStr} ET (timestamp: ${captureTimestamp})`);
+      
       this.marketPnLData.set(conditionId, {
         marketName,
         conditionId,
@@ -202,7 +210,7 @@ export class PaperTrader {
         pnlPercent,
         sharesUp,
         sharesDown,
-        timestamp: Date.now()
+        timestamp: captureTimestamp
       });
 
       // Mark this market as logged to prevent duplicates

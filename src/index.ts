@@ -480,7 +480,19 @@ export class PolymarketBot {
         const settledPnl = totalPayout - totalInvested;
         const settledPnlPercent = totalInvested > 0 ? (settledPnl / totalInvested) * 100 : 0;
 
-        logger.info(`📊 Market ending in 5s: ${capturedData.marketName} - ${outcome} - Settled PnL: ${settledPnl >= 0 ? '+' : ''}$${settledPnl.toFixed(2)} (${settledPnlPercent >= 0 ? '+' : ''}${settledPnlPercent.toFixed(1)}%) [UP: ${capturedData.currentPriceUp.toFixed(4)}, DOWN: ${capturedData.currentPriceDown.toFixed(4)}]`);
+        // Calculate time until market actually ends for logging
+        const now = Date.now();
+        const timeUntilEnd = market.endDate ? market.endDate - now : 0;
+        const timeUntilEndStr = timeUntilEnd > 0 ? `${(timeUntilEnd/1000).toFixed(1)}s` : 'ended';
+        
+        logger.info(`📊 Market ending in ${timeUntilEndStr}: ${capturedData.marketName} - ${outcome} - Settled PnL: ${settledPnl >= 0 ? '+' : ''}$${settledPnl.toFixed(2)} (${settledPnlPercent >= 0 ? '+' : ''}${settledPnlPercent.toFixed(1)}%) [UP: ${capturedData.currentPriceUp.toFixed(4)}, DOWN: ${capturedData.currentPriceDown.toFixed(4)}]`);
+
+        // CRITICAL: Only log PnL if market is actually ending (within 10 seconds)
+        // This prevents logging PnL for markets that are in the future
+        if (timeUntilEnd > 10 * 1000) {
+          logger.warn(`⚠️ Skipping PnL log for ${capturedData.marketName}: market ends in ${(timeUntilEnd/1000).toFixed(1)}s (too early, should be <10s)`);
+          return;
+        }
 
         // Log market PnL data with SETTLEMENT prices (1.0/0.0)
         // This ensures the report shows accurate settled PnL, not unrealized PnL

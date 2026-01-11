@@ -3,6 +3,7 @@ import { StrategyResult, Market, Position, TradeSignal } from "../interfaces";
 import { getRebalanceConfig, RebalanceConfig } from "../config/rebalanceConfig";
 import { MarketDataService } from "../services/marketData";
 import priceStreamLogger from "../services/priceStreamLogger";
+import { PnLCalculator } from "../utils/pnlCalculator";
 
 interface PriceHistory {
   price: number;
@@ -459,8 +460,9 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
     // Calculate base trade sizes using formula: base + (price × multiplier)
     // Apply close size multiplier for near-close behavior (15m markets)
-    const baseUpAmount = this.calculateTradeSize(yesPrice, marketType) * closeSizeMultiplier;
-    const baseDownAmount = this.calculateTradeSize(noPrice, marketType) * closeSizeMultiplier;
+    // Pass market identifiers for adaptive sizing
+    const baseUpAmount = this.calculateTradeSize(yesPrice, marketType, market.conditionId, yesTokenId, noTokenId) * closeSizeMultiplier;
+    const baseDownAmount = this.calculateTradeSize(noPrice, marketType, market.conditionId, yesTokenId, noTokenId) * closeSizeMultiplier;
 
     // TILT BOOST: When one side >= tilt_threshold, boost trades on winning side
     // WATCHER STYLE: Never stop one side completely, just favor the cheaper side
@@ -642,7 +644,103 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
    * decreases towards extremes (0.10 and 0.90)
    * Formula: multiplier = extreme + (peak - extreme) × (1 - |price - 0.5| × 2)
    */
-  private calculateTradeSize(price: number, marketType: string): number {
+  /**
+   * Calculate market PnL in real-time (unrealized PnL)
+   * Returns null if no positions or paperTrader not available
+   */
+  private calculateMarketPnL(conditionId: string, yesTokenId: string, noTokenId: string): {
+    totalPnL: number;
+    costBasis: number;
+    currentValue: number;
+  } | null {
+    if (!this.paperTrader) {
+      return null;
+    }
+
+    try {
+      const positions = this.paperTrader.getAllPositions().filter((p: Position) => p.conditionId === conditionId);
+      if (positions.length === 0) {
+        return null; // No positions in this market
+      }
+
+      // Build current prices map from priceStreamLogger
+      const currentPrices = new Map<string, number>();
+      for (const pos of positions) {
+        if (pos.tokenId === yesTokenId || pos.tokenId === noTokenId) {
+          const currentPrice = priceStreamLogger.getMidPrice(pos.tokenId);
+          if (currentPrice !== null) {
+            currentPrices.set(pos.tokenId, currentPrice);
+          } else {
+            // Fallback to position's currentPrice or avgPrice
+            currentPrices.set(pos.tokenId, pos.currentPrice || pos.avgPrice);
+          }
+        }
+      }
+
+      // Calculate PnL using PnLCalculator
+      const tradeHistory = this.paperTrader.getTradeHistory();
+      const marketPnL = PnLCalculator.calculateMarketPnL(positions, tradeHistory, conditionId, currentPrices);
+
+      if (!marketPnL) {
+        return null;
+      }
+
+      return {
+        totalPnL: marketPnL.totalPnL,
+        costBasis: marketPnL.totalCostBasis,
+        currentValue: marketPnL.totalCurrentValue,
+      };
+    } catch (error) {
+      // Silently fail - return null to disable adaptive sizing for this market
+      return null;
+    }
+  }
+
+  /**
+   * Calculate adaptive multiplier based on current PnL
+   * Returns 1.0 if adaptive sizing disabled or no PnL data
+   * Returns 0.0 if loss exceeds max_loss_per_market (stop trading)
+   */
+  private calculateAdaptiveMultiplier(
+    totalPnL: number,
+    costBasis: number
+  ): number {
+    const config = this.rebalanceConfig;
+
+    if (!config.adaptive_sizing_enabled) {
+      return 1.0;
+    }
+
+    // Stop trading if loss exceeds limit
+    if (totalPnL < -config.max_loss_per_market) {
+      return 0.0; // Stop trading this market
+    }
+
+    // When losing: increase position size (recovery mode)
+    if (totalPnL < 0) {
+      // Calculate loss percentage
+      const lossPercent = costBasis > 0 ? Math.abs(totalPnL / costBasis) : 0;
+      
+      // Scale multiplier based on loss: more loss = more aggressive recovery
+      // But cap at max_recovery_multiplier
+      // Formula: 1.0 + (recovery_multiplier - 1.0) * min(lossPercent * 10, 1.0)
+      const recoveryScale = Math.min(lossPercent * 10, 1.0); // Scale up to 10x loss% (e.g., 10% loss = full recovery multiplier)
+      const multiplier = 1.0 + (config.recovery_multiplier - 1.0) * recoveryScale;
+      
+      // Cap at max_recovery_multiplier
+      return Math.min(multiplier, config.max_recovery_multiplier);
+    }
+
+    // When winning: reduce position size (lock profits)
+    if (totalPnL > 0) {
+      return config.profit_lock_multiplier;
+    }
+
+    // Neutral (PnL = 0): no adjustment
+    return 1.0;
+  }
+
+  private calculateTradeSize(price: number, marketType: string, conditionId?: string, yesTokenId?: string, noTokenId?: string): number {
     const config = this.rebalanceConfig;
     const is1h = this.is1HourMarket(marketType);
     const is15m = this.is15MinuteMarket(marketType);
@@ -672,6 +770,27 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
         (config.bell_curve_peak_multiplier - config.bell_curve_extreme_multiplier) *
         Math.max(0, 1 - distanceFromCenter * 2);
       baseSize *= curveMultiplier;
+    }
+
+    // Apply adaptive sizing if enabled and market data available
+    if (config.adaptive_sizing_enabled && conditionId && yesTokenId && noTokenId) {
+      const marketPnL = this.calculateMarketPnL(conditionId, yesTokenId, noTokenId);
+      if (marketPnL) {
+        const adaptiveMultiplier = this.calculateAdaptiveMultiplier(marketPnL.totalPnL, marketPnL.costBasis);
+        
+        // If multiplier is 0.0, stop trading (loss exceeded limit)
+        if (adaptiveMultiplier === 0.0) {
+          return 0; // Stop trading this market
+        }
+
+        baseSize *= adaptiveMultiplier;
+
+        // Apply safety limit: max_recovery_bet_pct of balance
+        const maxRecoveryBet = this.balance * config.max_recovery_bet_pct;
+        if (baseSize > maxRecoveryBet) {
+          baseSize = maxRecoveryBet;
+        }
+      }
     }
 
     return baseSize;
