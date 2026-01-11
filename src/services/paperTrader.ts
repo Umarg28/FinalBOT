@@ -14,6 +14,7 @@ import { PnLCalculator, PortfolioPnL } from "../utils/pnlCalculator";
 import { CSVExporter } from "../utils/csvExporter";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import chalk from "chalk";
 
 export class PaperTrader {
@@ -46,13 +47,34 @@ export class PaperTrader {
     };
 
     // Initialize CSV file for paper trades
+    // Use path.join for cross-platform compatibility (Windows/Mac/Linux)
     const logsDir = path.join(process.cwd(), "logs");
     const paperDir = path.join(logsDir, "paper");
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
-    }
-    if (!fs.existsSync(paperDir)) {
-      fs.mkdirSync(paperDir, { recursive: true });
+    
+    // Create directories with proper error handling for cross-platform compatibility
+    try {
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true, mode: 0o755 });
+      }
+      if (!fs.existsSync(paperDir)) {
+        fs.mkdirSync(paperDir, { recursive: true, mode: 0o755 });
+      }
+    } catch (error: any) {
+      // On Windows, mode might not be supported, retry without it
+      if (error.code === 'EINVAL' || error.message?.includes('mode')) {
+        try {
+          if (!fs.existsSync(logsDir)) {
+            fs.mkdirSync(logsDir, { recursive: true });
+          }
+          if (!fs.existsSync(paperDir)) {
+            fs.mkdirSync(paperDir, { recursive: true });
+          }
+        } catch (retryError) {
+          logger.error(`Failed to create directories: ${retryError}`);
+        }
+      } else {
+        logger.error(`Failed to create directories: ${error}`);
+      }
     }
     const runId = getRunId();
     this.csvFilePath = path.join(paperDir, `Paper Trades_${runId}.csv`);
@@ -90,7 +112,7 @@ export class PaperTrader {
         "Realized PnL",
         "PnL Calculation",
       ].join(",");
-      fs.writeFileSync(this.csvFilePath, headers + "\n", "utf8");
+      fs.writeFileSync(this.csvFilePath, headers + os.EOL, { encoding: "utf8", flag: "w" });
       this.csvInitialized = true;
       logger.info(`Paper trades CSV initialized: ${this.csvFilePath}`);
     } catch (error) {
@@ -465,7 +487,7 @@ export class PaperTrader {
         `"${pnlCalculation}"`,
       ].join(",");
 
-      fs.appendFileSync(this.csvFilePath, row + "\n", "utf8");
+      fs.appendFileSync(this.csvFilePath, row + os.EOL, { encoding: "utf8", flag: "a" });
     } catch (error) {
       logger.error(`Failed to write paper trade to CSV: ${error}`);
     }
@@ -833,24 +855,64 @@ export class PaperTrader {
    */
   generateFormattedPnLReport(): void {
     try {
+      // Platform-specific line ending (\r\n on Windows, \n on Mac/Linux)
+      const EOL = os.EOL;
+      
       const runId = getRunId();
+      // Use path.join for cross-platform compatibility (Windows/Mac/Linux)
       const logsDir = path.join(process.cwd(), "logs");
       const paperDir = path.join(logsDir, "paper");
+      
+      // Ensure directories exist with cross-platform error handling
+      try {
+        if (!fs.existsSync(logsDir)) {
+          fs.mkdirSync(logsDir, { recursive: true, mode: 0o755 });
+        }
+        if (!fs.existsSync(paperDir)) {
+          fs.mkdirSync(paperDir, { recursive: true, mode: 0o755 });
+        }
+      } catch (error: any) {
+        // On Windows, mode might not be supported, retry without it
+        if (error.code === 'EINVAL' || error.message?.includes('mode')) {
+          try {
+            if (!fs.existsSync(logsDir)) {
+              fs.mkdirSync(logsDir, { recursive: true });
+            }
+            if (!fs.existsSync(paperDir)) {
+              fs.mkdirSync(paperDir, { recursive: true });
+            }
+          } catch (retryError) {
+            logger.error(`Failed to create directories for report: ${retryError}`);
+            return;
+          }
+        } else {
+          logger.error(`Failed to create directories for report: ${error}`);
+          return;
+        }
+      }
+      
       const reportPath = path.join(paperDir, `PnL Report_${runId}.txt`);
 
       // Check if we have any market data
       if (!this.marketPnLData || this.marketPnLData.size === 0) {
         // Create an empty report file to indicate the system is ready
-        let emptyReport = "=".repeat(100) + "\n";
-        emptyReport += "                    PAPER TRADING PNL REPORT\n";
-        emptyReport += "=".repeat(100) + "\n\n";
-        emptyReport += "  No market data available yet.\n";
-        emptyReport += "  Report will be updated as markets are traded.\n\n";
-        emptyReport += "=".repeat(100) + "\n";
-        emptyReport += `  Generated: ${new Date().toLocaleString()}\n`;
-        emptyReport += "=".repeat(100) + "\n";
-        fs.writeFileSync(reportPath, emptyReport, "utf8");
-        logger.info(`📊 Empty PnL report created: ${reportPath}`);
+        // Use platform-specific line endings for cross-platform compatibility
+        let emptyReport = "=".repeat(100) + EOL;
+        emptyReport += "                    PAPER TRADING PNL REPORT" + EOL;
+        emptyReport += "=".repeat(100) + EOL + EOL;
+        emptyReport += "  No market data available yet." + EOL;
+        emptyReport += "  Report will be updated as markets are traded." + EOL + EOL;
+        emptyReport += "=".repeat(100) + EOL;
+        emptyReport += `  Generated: ${new Date().toLocaleString()}` + EOL;
+        emptyReport += "=".repeat(100) + EOL;
+        
+        // Write with UTF-8 encoding and proper error handling
+        try {
+          fs.writeFileSync(reportPath, emptyReport, { encoding: "utf8", flag: "w" });
+          logger.info(`📊 Empty PnL report created: ${reportPath}`);
+        } catch (error: any) {
+          logger.error(`Failed to write empty PnL report to ${reportPath}: ${error.message || error}`);
+        }
         return;
       }
 
@@ -1078,10 +1140,12 @@ export class PaperTrader {
       }
 
       // Generate formatted report (simple, clean text)
+      // Use platform-specific line endings for cross-platform compatibility
+      // EOL already declared at top of function
       let report = "";
-      report += "=".repeat(100) + "\n";
-      report += "                    PAPER TRADING PNL REPORT\n";
-      report += "=".repeat(100) + "\n\n";
+      report += "=".repeat(100) + EOL;
+      report += "                    PAPER TRADING PNL REPORT" + EOL;
+      report += "=".repeat(100) + EOL + EOL;
 
       // Sort hour windows chronologically
       const sortedWindows = Array.from(groupedByHour.keys()).sort((a, b) => {
@@ -1113,9 +1177,9 @@ export class PaperTrader {
           return 0;
         });
 
-        report += "\n" + "=".repeat(100) + "\n";
-        report += `  HOUR WINDOW: ${hourWindow}` + "\n";
-        report += "=".repeat(100) + "\n\n";
+        report += EOL + "=".repeat(100) + EOL;
+        report += `  HOUR WINDOW: ${hourWindow}` + EOL;
+        report += "=".repeat(100) + EOL + EOL;
 
         let windowPnL = 0;
         let windowInvested = 0;
@@ -1125,48 +1189,48 @@ export class PaperTrader {
           const pnlSign = market.pnl >= 0 ? "+" : "";
 
           // Market header
-          report += "\n" + "-".repeat(100) + "\n";
-          report += `  ${marketType} Market: ${market.name}` + "\n";
-          report += "-".repeat(100) + "\n\n";
+          report += EOL + "-".repeat(100) + EOL;
+          report += `  ${marketType} Market: ${market.name}` + EOL;
+          report += "-".repeat(100) + EOL + EOL;
           
           // Outcome and PnL
-          report += "  OUTCOME: " + market.outcome + "\n";
+          report += "  OUTCOME: " + market.outcome + EOL;
           const pnlStr = `${pnlSign}$${Math.abs(market.pnl).toFixed(2)}`;
           const pnlPercentStr = `${pnlSign}${Math.abs(market.pnlPercent).toFixed(2)}%`;
-          report += "  PnL: " + `${pnlStr} (${pnlPercentStr})` + "\n\n";
+          report += "  PnL: " + `${pnlStr} (${pnlPercentStr})` + EOL + EOL;
 
           // Shares
-          report += "  SHARES:" + "\n";
-          report += "    UP:   " + market.sharesUp.toFixed(2) + "\n";
-          report += "    DOWN: " + market.sharesDown.toFixed(2) + "\n\n";
+          report += "  SHARES:" + EOL;
+          report += "    UP:   " + market.sharesUp.toFixed(2) + EOL;
+          report += "    DOWN: " + market.sharesDown.toFixed(2) + EOL + EOL;
 
           // Prices
-          report += "  CLOSING PRICES:" + "\n";
-          report += "    UP:   $" + market.avgPriceUp.toFixed(4) + "\n";
-          report += "    DOWN: $" + market.avgPriceDown.toFixed(4) + "\n\n";
+          report += "  CLOSING PRICES:" + EOL;
+          report += "    UP:   $" + market.avgPriceUp.toFixed(4) + EOL;
+          report += "    DOWN: $" + market.avgPriceDown.toFixed(4) + EOL + EOL;
 
           // Average Costs
-          report += "  AVERAGE COST:" + "\n";
-          report += "    UP:   $" + market.avgCostUp.toFixed(4) + "\n";
-          report += "    DOWN: $" + market.avgCostDown.toFixed(4) + "\n\n";
+          report += "  AVERAGE COST:" + EOL;
+          report += "    UP:   $" + market.avgCostUp.toFixed(4) + EOL;
+          report += "    DOWN: $" + market.avgCostDown.toFixed(4) + EOL + EOL;
 
           // Payout
           if (market.sharesUp > 0 || market.sharesDown > 0) {
-            report += "  PAYOUT:" + "\n";
+            report += "  PAYOUT:" + EOL;
             if (market.outcome === "UP Won") {
               const payout = market.sharesUp * 1.0;
-              report += "    UP:   $" + payout.toFixed(2) + " (" + market.sharesUp.toFixed(2) + " shares × $1.00)" + "\n";
-              report += "    DOWN: $0.00 (" + market.sharesDown.toFixed(2) + " shares × $0.00)" + "\n";
+              report += "    UP:   $" + payout.toFixed(2) + " (" + market.sharesUp.toFixed(2) + " shares × $1.00)" + EOL;
+              report += "    DOWN: $0.00 (" + market.sharesDown.toFixed(2) + " shares × $0.00)" + EOL;
             } else if (market.outcome === "DOWN Won") {
               const payout = market.sharesDown * 1.0;
-              report += "    UP:   $0.00 (" + market.sharesUp.toFixed(2) + " shares × $0.00)" + "\n";
-              report += "    DOWN: $" + payout.toFixed(2) + " (" + market.sharesDown.toFixed(2) + " shares × $1.00)" + "\n";
+              report += "    UP:   $0.00 (" + market.sharesUp.toFixed(2) + " shares × $0.00)" + EOL;
+              report += "    DOWN: $" + payout.toFixed(2) + " (" + market.sharesDown.toFixed(2) + " shares × $1.00)" + EOL;
             }
-            report += "\n";
+            report += EOL;
           }
 
           // Total Invested
-          report += "  TOTAL INVESTED: $" + market.totalInvested.toFixed(2) + "\n";
+          report += "  TOTAL INVESTED: $" + market.totalInvested.toFixed(2) + EOL;
 
           windowPnL += market.pnl;
           windowInvested += market.totalInvested;
@@ -1175,37 +1239,42 @@ export class PaperTrader {
         // Window summary
         const windowPnLSign = windowPnL >= 0 ? "+" : "";
         const windowPnLPercent = windowInvested > 0 ? (windowPnL / windowInvested) * 100 : 0;
-        report += "\n" + "=".repeat(100) + "\n";
+        report += EOL + "=".repeat(100) + EOL;
         const windowPnLStr = `${windowPnLSign}$${Math.abs(windowPnL).toFixed(2)}`;
         const windowPnLPercentStr = `${windowPnLSign}${Math.abs(windowPnLPercent).toFixed(2)}%`;
-        report += "  WINDOW SUMMARY:" + "\n";
-        report += "  PnL: " + `${windowPnLStr} (${windowPnLPercentStr})` + "\n";
-        report += "  Total Invested: $" + windowInvested.toFixed(2) + "\n";
-        report += "=".repeat(100) + "\n\n";
+        report += "  WINDOW SUMMARY:" + EOL;
+        report += "  PnL: " + `${windowPnLStr} (${windowPnLPercentStr})` + EOL;
+        report += "  Total Invested: $" + windowInvested.toFixed(2) + EOL;
+        report += "=".repeat(100) + EOL + EOL;
 
         totalPnL += windowPnL;
         totalInvested += windowInvested;
       }
 
       // Overall summary
-      report += "\n" + "=".repeat(100) + "\n";
-      report += "                              OVERALL SUMMARY" + "\n";
-      report += "=".repeat(100) + "\n\n";
+      report += EOL + "=".repeat(100) + EOL;
+      report += "                              OVERALL SUMMARY" + EOL;
+      report += "=".repeat(100) + EOL + EOL;
       const totalPnLSign = totalPnL >= 0 ? "+" : "";
       const totalPnLPercent = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
       const totalPnLStr = `${totalPnLSign}$${Math.abs(totalPnL).toFixed(2)}`;
       const totalPnLPercentStr = `${totalPnLSign}${Math.abs(totalPnLPercent).toFixed(2)}%`;
-      report += "  Total PnL:     " + `${totalPnLStr} (${totalPnLPercentStr})` + "\n";
-      report += "  Total Invested: $" + totalInvested.toFixed(2) + "\n";
-      report += "  Markets Traded: " + markets.length.toString() + "\n";
-      report += "  Hour Windows:   " + sortedWindows.length.toString() + "\n";
-      report += "\n" + "=".repeat(100) + "\n";
-      report += "  Generated: " + new Date().toLocaleString() + "\n";
-      report += "=".repeat(100) + "\n";
+      report += "  Total PnL:     " + `${totalPnLStr} (${totalPnLPercentStr})` + EOL;
+      report += "  Total Invested: $" + totalInvested.toFixed(2) + EOL;
+      report += "  Markets Traded: " + markets.length.toString() + EOL;
+      report += "  Hour Windows:   " + sortedWindows.length.toString() + EOL;
+      report += EOL + "=".repeat(100) + EOL;
+      report += "  Generated: " + new Date().toLocaleString() + EOL;
+      report += "=".repeat(100) + EOL;
 
-      // Write report
-      fs.writeFileSync(reportPath, report, "utf8");
-      logger.info(`📊 Formatted PnL report generated: ${reportPath}`);
+      // Write report with proper encoding and error handling for cross-platform compatibility
+      try {
+        fs.writeFileSync(reportPath, report, { encoding: "utf8", flag: "w" });
+        logger.info(`📊 Formatted PnL report generated: ${reportPath}`);
+      } catch (error: any) {
+        logger.error(`Failed to write PnL report to ${reportPath}: ${error.message || error}`);
+        throw error; // Re-throw to be caught by outer try-catch
+      }
     } catch (error) {
       logger.error(`Failed to generate formatted PnL report: ${error}`);
     }
