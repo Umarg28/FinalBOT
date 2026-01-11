@@ -262,48 +262,72 @@ class MarketDiscovery {
       }
 
       // =========================================================================
-      // Fetch 1-hour markets using date-based slug pattern
-      // Format: bitcoin-up-or-down-january-{day}-{hour}{am|pm}-et
+      // Fetch 1-hour markets using reliable API queries (similar reliability to 15-min)
+      // Unlike 15-min markets which use timestamp-based slugs, 1-hour markets use
+      // tag-based and prefix-based queries which are more reliable
       // =========================================================================
-      const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
-                          'july', 'august', 'september', 'october', 'november', 'december'];
-
-      // Generate slugs for current and next few hours in ET timezone
-      const nowET = new Date(now);
-      // Convert to ET (UTC-5 or UTC-4 depending on DST)
-      const etOffset = -5; // EST (adjust for EDT if needed)
-      nowET.setHours(nowET.getUTCHours() + etOffset);
-
-      for (const prefix of ['bitcoin-up-or-down', 'ethereum-up-or-down']) {
-        // Try current hour and next few hours across today and tomorrow
-        for (let dayOffset = 0; dayOffset <= 2; dayOffset++) {
-          const targetDate = new Date(nowET);
-          targetDate.setDate(targetDate.getDate() + dayOffset);
-          const month = monthNames[targetDate.getMonth()];
-          const day = targetDate.getDate();
-
-          // Try ALL hours (0-23) to catch any market that might exist
-          for (let hour = 0; hour <= 23; hour++) {
-            // Convert 24-hour to 12-hour format correctly
-            const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-            const ampm = hour >= 12 ? 'pm' : 'am';
-            const slug = `${prefix}-${month}-${day}-${hour12}${ampm}-et`;
-            const marketUrl = `${CONFIG.GAMMA_API_URL}?slug=${slug}`;
-            const markets = await this.fetchMarketsFromUrl(marketUrl);
-            allMarkets.push(...markets);
-          }
-        }
-      }
-
-      // Also try legacy queries as backup
+      
+      // PRIMARY: Use tag_slug query to get all active hourly markets (most reliable)
+      // This returns all active 1-hour markets ordered by endDate
       const hourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&active=true&closed=false&limit=100&order=endDate&ascending=true`;
       const hourlyMarkets = await this.fetchMarketsFromUrl(hourlyUrl);
       allMarkets.push(...hourlyMarkets);
 
+      // SECONDARY: Use slug_contains queries for each prefix as backup
+      // This ensures we catch markets even if tag query misses them
       for (const hourlyPrefix of ['bitcoin-up-or-down', 'ethereum-up-or-down']) {
-        const hourlyPrefixUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&closed=false&limit=20`;
-        const prefixMarkets = await this.fetchMarketsFromUrl(hourlyPrefixUrl);
-        allMarkets.push(...prefixMarkets);
+        // Try both active=true and without active filter to catch all markets
+        const activeUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=true&closed=false&limit=50&order=endDate&ascending=true`;
+        const inactiveUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=false&closed=false&limit=50&order=endDate&ascending=true`;
+        const allUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&closed=false&limit=50&order=endDate&ascending=true`;
+        
+        const [activeMarkets, inactiveMarkets, allMarketsForPrefix] = await Promise.all([
+          this.fetchMarketsFromUrl(activeUrl),
+          this.fetchMarketsFromUrl(inactiveUrl),
+          this.fetchMarketsFromUrl(allUrl)
+        ]);
+        
+        allMarkets.push(...activeMarkets, ...inactiveMarkets, ...allMarketsForPrefix);
+      }
+      
+      // TERTIARY: Also try date-based slug pattern for current and next hours only (not all 72 hours!)
+      // This is a fallback if API queries fail, but we only try a few hours, not all possible hours
+      const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
+                          'july', 'august', 'september', 'october', 'november', 'december'];
+      
+      // Calculate current ET time properly
+      const nowDate = new Date(now * 1000); // Convert seconds to milliseconds
+      const etFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        hour12: true
+      });
+      const etParts = etFormatter.formatToParts(nowDate);
+      const etMonth = etParts.find(p => p.type === 'month')?.value.toLowerCase() || 'january';
+      const etDay = parseInt(etParts.find(p => p.type === 'day')?.value || '1', 10);
+      const etHour12 = parseInt(etParts.find(p => p.type === 'hour')?.value || '12', 10);
+      const etAmpm = etParts.find(p => p.type === 'dayPeriod')?.value.toLowerCase() || 'am';
+      
+      // Try current hour and next 2 hours only (not all 72 hours!)
+      for (const prefix of ['bitcoin-up-or-down', 'ethereum-up-or-down']) {
+        for (let hourOffset = 0; hourOffset <= 2; hourOffset++) {
+          let targetHour12 = etHour12 + hourOffset;
+          let targetAmpm = etAmpm;
+          
+          // Handle hour rollover
+          if (targetHour12 > 12) {
+            targetHour12 -= 12;
+            if (targetAmpm === 'am') targetAmpm = 'pm';
+            else targetAmpm = 'am';
+          }
+          
+          const slug = `${prefix}-${etMonth}-${etDay}-${targetHour12}${targetAmpm}-et`;
+          const marketUrl = `${CONFIG.GAMMA_API_URL}?slug=${slug}`;
+          const markets = await this.fetchMarketsFromUrl(marketUrl);
+          allMarkets.push(...markets);
+        }
       }
 
       // Deduplicate by condition_id
@@ -504,11 +528,9 @@ class MarketDiscovery {
         let next: MarketInfo | null = null;
         let expiringMarket: MarketInfo | null = null;
 
-        // For 5-minute markets, use shorter buffer; for 15-minute markets, use default buffer
-        const is5MinMarket = marketType.includes('5m');
-        const bufferMs = is5MinMarket ? 30 * 1000 : CONFIG.MARKET_SWITCH_BUFFER_MS; // 30s for 5m, 1min for 15m
-
-        // First pass: find current market (has started) and next market (hasn't started)
+        // CRITICAL: Do NOT switch markets early - wait until current market actually ends
+        // This ensures pre-close callback (5 seconds before end) fires BEFORE market switch
+        // The pre-close callback needs to capture PnL for the old market before switching
         // Sort markets by start time to ensure we get the right next market
         const sortedMarkets = [...markets].sort((a, b) => {
           const aStart = new Date(a.start_time_iso).getTime();
@@ -526,22 +548,8 @@ class MarketDiscovery {
             if (startTime <= now) {
               // Market has started and hasn't ended yet - this is an active market
               // Pick the one with the most time left (i.e., the most recently started)
-              if (!current) {
+              if (!current || timeLeft > (new Date(current.end_date_iso).getTime() - now)) {
                 current = market;
-                // Check if this market is about to end
-                if (timeLeft < bufferMs) {
-                  expiringMarket = market;
-                }
-              } else {
-                // If we already have a current market, check if this one is better
-                // (has more time left, meaning it's a newer market)
-                const currentTimeLeft = new Date(current.end_date_iso).getTime() - now;
-                if (timeLeft > currentTimeLeft) {
-                  // This market has more time left - it's the newer one
-                  // The old "current" is actually expiring
-                  expiringMarket = current;
-                  current = market;
-                }
               }
             } else {
               // Market hasn't started yet (future market) - this is the next market
@@ -553,25 +561,23 @@ class MarketDiscovery {
           }
         }
 
-        // If current market is about to end (within buffer time) or has ended, and we have a next market, switch
-        if (expiringMarket && next) {
-          const timeLeft = new Date(expiringMarket.end_date_iso).getTime() - now;
-          const minutesLeft = Math.floor(timeLeft / 1000 / 60);
-          if (timeLeft <= 0) {
+        // CRITICAL: Only switch if current market has actually ended (timeLeft <= 0)
+        // Do NOT switch early - this ensures pre-close callback fires for the correct market
+        if (current) {
+          const currentEndTime = new Date(current.end_date_iso).getTime();
+          const currentTimeLeft = currentEndTime - now;
+          
+          // If current market has ended, switch to next market
+          if (currentTimeLeft <= 0 && next) {
             log('info', `[${marketType}] Current market has ended, switching to next: ${next.question}`);
-          } else {
-            log('info', `[${marketType}] Current market ending soon (${minutesLeft}m left), switching to next: ${next.question}`);
+            current = next;
+            next = null;
           }
-          current = next;
-          next = null;
-        } else if (!current && next) {
+        } else if (next) {
           // No current market found, but we have a next market - use it (market might have just ended)
           log('info', `[${marketType}] No current market found, using next market: ${next.question}`);
           current = next;
           next = null;
-        } else if (expiringMarket && !next) {
-          // Current market has ended but no next market found - log warning
-          log('warn', `[${marketType}] Current market has ended but no next market found: ${expiringMarket.question}`);
         }
 
         if (current) {
@@ -1083,16 +1089,25 @@ class PriceStreamLogger {
       }
 
       // Refresh if:
-      // 1. Any market needs switching (< buffer time left, or < 5 min for 1h markets)
-      // 2. Any market has ended
-      // 3. It's been more than 5 minutes since last refresh (force periodic refresh)
-      if (needsSwitch.length > 0 || anyEnded || timeSinceRefresh > FORCE_REFRESH_INTERVAL_MS) {
+      // 1. Any market has ended (needs switch when timeLeft <= 0)
+      // 2. It's been more than 5 minutes since last refresh (force periodic refresh for 1-hour markets)
+      // CRITICAL: For 1-hour markets, we need frequent checks to catch new hourly windows
+      // Check every 1 minute for 1-hour markets to ensure we don't miss new hours
+      const has1HourMarkets = Array.from(this.getCurrentMarkets().keys()).some(
+        (k: string) => k.includes('up-or-down') && !k.includes('15m')
+      );
+      const REFRESH_INTERVAL_1H = 1 * 60 * 1000; // 1 minute for 1-hour markets
+      const shouldForceRefresh = has1HourMarkets 
+        ? timeSinceRefresh > REFRESH_INTERVAL_1H 
+        : timeSinceRefresh > FORCE_REFRESH_INTERVAL_MS;
+      
+      if (needsSwitch.length > 0 || anyEnded || shouldForceRefresh) {
         if (needsSwitch.length > 0) {
           log('info', `Market(s) need switching: ${needsSwitch.join(', ')}`);
         } else if (anyEnded) {
           log('info', 'Market(s) have ended, refreshing...');
-        } else if (timeSinceRefresh > FORCE_REFRESH_INTERVAL_MS) {
-          log('info', 'Periodic market refresh (every 5 min)...');
+        } else if (shouldForceRefresh) {
+          log('debug', has1HourMarkets ? 'Periodic 1-hour market refresh (every 1 min)...' : 'Periodic market refresh (every 5 min)...');
         }
         lastForceRefresh = now;
         await this.discoverAndConnect();

@@ -2227,6 +2227,12 @@ export class MarketTracker {
             ) {
                 const timeUntilEnd = m.endDate - now;
                 if (timeUntilEnd <= PRE_CLOSE_SECONDS && timeUntilEnd > 0) {
+                    // CRITICAL: Force fetch prices BEFORE triggering pre-close callback
+                    // This ensures prices are available even if WebSocket switched early
+                    if (!m.currentPriceUp || !m.currentPriceDown) {
+                        await this.fetchCurrentPrices(m, true); // Force fetch
+                    }
+                    
                     this.preCloseTriggeredMarkets.add(m.marketKey);
                     try {
                         await this.onPreCloseCallback(m);

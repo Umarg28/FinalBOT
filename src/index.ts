@@ -366,35 +366,10 @@ export class PolymarketBot {
           finalPriceDown = finalPriceDown ?? 0.5;
         }
 
-        // Also log PnL when market closes (in case pre-close callback didn't fire)
-        // This ensures closed markets are recorded in the text report
-        // BUT only if prices are valid (not defaults that would cause wrong "Tie" outcome)
-        if (closedMarket.conditionId && (closedMarket.sharesUp > 0 || closedMarket.sharesDown > 0) && !pricesLookLikeDefaults && finalPriceUp !== undefined && finalPriceDown !== undefined) {
-          const finalValueUp = closedMarket.sharesUp * finalPriceUp;
-          const finalValueDown = closedMarket.sharesDown * finalPriceDown;
-          const pnlUp = closedMarket.sharesUp > 0 ? finalValueUp - closedMarket.totalCostUp : 0;
-          const pnlDown = closedMarket.sharesDown > 0 ? finalValueDown - closedMarket.totalCostDown : 0;
-          const totalPnl = pnlUp + pnlDown;
-          const totalCost = closedMarket.totalCostUp + closedMarket.totalCostDown;
-          const pnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
-
-          logger.info(`📊 Logging closed market PnL: ${closedMarket.marketName} - ConditionId: ${closedMarket.conditionId} - PnL: $${totalPnl.toFixed(2)} (UP: ${finalPriceUp}, DOWN: ${finalPriceDown})`);
-
-          // Log market PnL data (stored in memory for TXT report generation)
-          // This ensures markets that close without pre-close callback are still recorded
-          this.paperTrader.logMarketPnLFromDashboard(
-            closedMarket.marketName || "Unknown",
-            closedMarket.conditionId || "",
-            totalPnl,
-            pnlPercent,
-            closedMarket.sharesUp,
-            closedMarket.sharesDown,
-            finalPriceUp,
-            finalPriceDown
-          );
-        } else if (!closedMarket.conditionId || (closedMarket.sharesUp === 0 && closedMarket.sharesDown === 0)) {
-          logger.warn(`⚠️ Skipping PnL log for closed market: ${closedMarket.marketName} - ConditionId: ${closedMarket.conditionId || 'missing'} - Shares: Up=${closedMarket.sharesUp}, Down=${closedMarket.sharesDown}`);
-        }
+        // CRITICAL: Do NOT log PnL in close callback - only in pre-close callback
+        // The pre-close callback (5 seconds before end) is the ONLY place PnL should be logged
+        // This prevents duplicate PnL logging and ensures correct market data
+        // The close callback is only for settling positions, not logging PnL
 
         // Settle the market with whatever prices we have (default to 0.5 if needed for settlement only)
         this.paperTrader.settleMarket(
@@ -418,6 +393,8 @@ export class PolymarketBot {
           totalCostDown: market.totalCostDown,
           currentPriceUp: market.currentPriceUp,
           currentPriceDown: market.currentPriceDown,
+          assetUp: market.assetUp,
+          assetDown: market.assetDown,
         };
 
         // Skip if no conditionId (can't track without it)
@@ -431,10 +408,51 @@ export class PolymarketBot {
           return;
         }
 
-        // CRITICAL: Must have valid prices to determine winner
+        // CRITICAL: If prices are missing, try to fetch them NOW before logging PnL
+        // This handles cases where WebSocket switched to new market before prices were captured
         if (!capturedData.currentPriceUp || !capturedData.currentPriceDown) {
-          logger.warn(`⚠️ Skipping pre-close PnL for ${capturedData.marketName} - prices not available (UP: ${capturedData.currentPriceUp}, DOWN: ${capturedData.currentPriceDown})`);
-          return;
+          logger.warn(`⚠️ Prices missing for ${capturedData.marketName} - attempting to fetch from API...`);
+          
+          // Try to fetch prices from order book API as last resort
+          if (capturedData.assetUp && capturedData.assetDown) {
+            try {
+              const fetchData = (await import('./utils/fetchData')).default;
+              const [upBookData, downBookData] = await Promise.all([
+                fetchData(`https://clob.polymarket.com/book?token_id=${capturedData.assetUp}`).catch(() => null),
+                fetchData(`https://clob.polymarket.com/book?token_id=${capturedData.assetDown}`).catch(() => null),
+              ]);
+
+              if (upBookData && downBookData) {
+                const getMidPrice = (bookData: any) => {
+                  if (bookData?.bids?.length > 0 && bookData?.asks?.length > 0) {
+                    const bestBid = Math.max(...bookData.bids.map((b: any) => parseFloat(b.price || 0)));
+                    const bestAsk = Math.min(...bookData.asks.map((a: any) => parseFloat(a.price || 1)));
+                    if (bestBid > 0 && bestAsk > 0 && bestBid <= 1 && bestAsk <= 1) {
+                      return (bestBid + bestAsk) / 2;
+                    }
+                  }
+                  return null;
+                };
+
+                const apiPriceUp = getMidPrice(upBookData);
+                const apiPriceDown = getMidPrice(downBookData);
+
+                if (apiPriceUp !== null && apiPriceDown !== null) {
+                  capturedData.currentPriceUp = apiPriceUp;
+                  capturedData.currentPriceDown = apiPriceDown;
+                  logger.info(`✓ Successfully fetched prices from API for ${capturedData.marketName}: UP=$${apiPriceUp.toFixed(4)}, DOWN=$${apiPriceDown.toFixed(4)}`);
+                }
+              }
+            } catch (error) {
+              logger.warn(`Failed to fetch prices from API for ${capturedData.marketName}:`, error);
+            }
+          }
+
+          // If still no prices after API fetch, skip PnL logging
+          if (!capturedData.currentPriceUp || !capturedData.currentPriceDown) {
+            logger.warn(`⚠️ Skipping pre-close PnL for ${capturedData.marketName} - prices not available after API fetch (UP: ${capturedData.currentPriceUp}, DOWN: ${capturedData.currentPriceDown})`);
+            return;
+          }
         }
 
         // Determine winner based on current prices and set SETTLEMENT prices (1.0/0.0)
