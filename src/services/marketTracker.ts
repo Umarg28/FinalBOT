@@ -56,6 +56,8 @@ export interface MarketStats {
     // Snapshot prices captured shortly before market end
     closingPriceUp?: number;
     closingPriceDown?: number;
+    // Internal: last time we tried to fetch asset IDs from Gamma (for backoff)
+    lastAssetFetchAttempt?: number;
 }
 
 export class MarketTracker {
@@ -924,17 +926,22 @@ export class MarketTracker {
      * Skips 1-hour markets - they are handled by closeOldMarketsInCategory
      */
     private removePreviousTimeWindow(newMarket: MarketStats): void {
+        logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() called for marketKey=${newMarket.marketKey}, marketName=${newMarket.marketName}`);
+        
         // Skip 1-hour markets - they don't have time windows and are handled differently
         if (this.is1HourMarket(newMarket.marketKey, newMarket.marketName)) {
+            logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() skipped - 1-hour market`);
             return;
         }
         
         const newTimeWindow = this.extractTimeWindow(newMarket.marketName);
         if (!newTimeWindow) {
+            logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() skipped - no time window extracted from market name`);
             return; // Not a time-window market
         }
 
         const baseName = this.getBaseMarketName(newMarket.marketName);
+        logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() - newTimeWindow=${newTimeWindow}, baseName=${baseName}, checking ${this.markets.size} markets`);
         
         // Find markets with the same base name but different (earlier) time windows
         const marketsToRemove: string[] = [];
@@ -947,6 +954,7 @@ export class MarketTracker {
             const marketBaseName = this.getBaseMarketName(market.marketName);
             if (marketBaseName === baseName) {
                 const marketTimeWindow = this.extractTimeWindow(market.marketName);
+                logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() - checking market ${key}, marketBaseName=${marketBaseName}, marketTimeWindow=${marketTimeWindow}`);
                 if (marketTimeWindow && marketTimeWindow !== newTimeWindow) {
                     // Extract start times to compare
                     const newStart = newTimeWindow.split(/[-–]/)[0].trim();
@@ -980,24 +988,33 @@ export class MarketTracker {
                         // Remove markets with earlier start times (previous time windows)
                         // Also handle wrap-around (e.g., 11:45 -> 12:00, but 12:00 is later)
                         if (marketStartMinutes < newStartMinutes) {
+                            logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() - marking market ${key} for removal (${marketStartMinutes} < ${newStartMinutes})`);
                             marketsToRemove.push(key);
+                        } else {
+                            logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() - keeping market ${key} (${marketStartMinutes} >= ${newStartMinutes})`);
                         }
+                    } else {
+                        logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() - cannot parse times, newStartMinutes=${newStartMinutes}, marketStartMinutes=${marketStartMinutes}`);
                     }
                 }
             }
         }
 
         // Remove the previous time window markets (but first call the close callback to log PnL)
+        logger.info(`[MARKET-TRACKER] removePreviousTimeWindow() - removing ${marketsToRemove.length} previous time window market(s): ${marketsToRemove.join(', ')}`);
         for (const key of marketsToRemove) {
             const marketToRemove = this.markets.get(key);
             if (marketToRemove && this.onMarketCloseCallback) {
+                logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() - calling close callback for market ${key}`);
                 // Call the close callback before removing to ensure PnL is logged
                 this.onMarketCloseCallback(marketToRemove).catch(error => {
-                    console.error(`Error in close callback for removed market ${key}:`, error);
+                    logger.error(`[MARKET-TRACKER] Error in close callback for removed market ${key}:`, error);
                 });
             }
             this.markets.delete(key);
+            logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() - deleted market ${key}, markets count now=${this.markets.size}`);
         }
+        logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() completed, final markets count=${this.markets.size}`);
     }
 
     /**
@@ -1386,8 +1403,12 @@ export class MarketTracker {
      * Process a new trade
      */
     async processTrade(activity: any): Promise<void> {
+        const processStartTime = Date.now();
+        logger.debug(`[MARKET-TRACKER] processTrade() called - transactionHash=${activity.transactionHash || 'N/A'}, asset=${activity.asset || 'N/A'}, side=${activity.side || 'N/A'}, slug=${activity.slug || activity.eventSlug || 'N/A'}`);
+        
         // Only process 15min or hourly markets
         if (!this.is15MinOrHourlyMarket(activity)) {
+            logger.debug(`[MARKET-TRACKER] processTrade() skipped - not a 15min or hourly market`);
             return; // Skip non-15min/hourly markets
         }
 
@@ -1438,13 +1459,20 @@ export class MarketTracker {
         const side = activity.side?.toUpperCase() || 'BUY';
         const category = this.extractMarketCategory(activity);
 
+        logger.debug(`[MARKET-TRACKER] Trade parsed - marketKey=${marketKey}, isUp=${isUp}, shares=${shares}, invested=${invested}, side=${side}, category=${category || 'N/A'}`);
+
         const isNewMarket = !this.markets.has(marketKey);
+        logger.debug(`[MARKET-TRACKER] Market status - isNewMarket=${isNewMarket}, current markets count=${this.markets.size}`);
 
         // Remove older UpDown-15 markets before adding/updating
         // Always check, even if market exists, to catch older markets with different keys
+        logger.debug(`[MARKET-TRACKER] Removing older UpDown-15 markets before processing trade`);
+        const removeOlderStartTime = Date.now();
         this.removeOlderUpDown15Markets(marketKey, activity);
+        logger.debug(`[MARKET-TRACKER] removeOlderUpDown15Markets() completed in ${Date.now() - removeOlderStartTime}ms, markets count now=${this.markets.size}`);
         
         let market = this.markets.get(marketKey);
+        logger.debug(`[MARKET-TRACKER] Market lookup - marketKey=${marketKey}, found=${!!market}`);
 
         if (!market) {
             // Calculate endDate - ALWAYS calculate from slug for 15-min markets (API endDate is unreliable)
@@ -1526,6 +1554,7 @@ export class MarketTracker {
                 category: category || undefined,
             };
             this.markets.set(marketKey, market);
+            logger.info(`[MARKET-TRACKER] NEW MARKET CREATED - marketKey=${marketKey}, marketName=${market.marketName}, conditionId=${market.conditionId || 'N/A'}, endDate=${market.endDate ? new Date(market.endDate).toISOString() : 'N/A'}, category=${market.category || 'N/A'}`);
 
             // Notify priceStreamLogger that a new market window has started
             // This enables logging for this market
@@ -1555,23 +1584,36 @@ export class MarketTracker {
 
             // Remove previous time window markets when a new one starts
             // Note: This skips 1-hour markets which are handled by closeOldMarketsInCategory
+            logger.debug(`[MARKET-TRACKER] Removing previous time window markets for new market ${marketKey}`);
+            const removePrevStartTime = Date.now();
+            const marketsBeforeRemove = this.markets.size;
             this.removePreviousTimeWindow(market);
+            const marketsAfterRemove = this.markets.size;
+            logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() completed in ${Date.now() - removePrevStartTime}ms, markets: ${marketsBeforeRemove} -> ${marketsAfterRemove}`);
             
             // Record PnL for ALL existing markets at the time of new market opening
             // This captures the PnL snapshot of all markets when a new one opens
+            logger.debug(`[MARKET-TRACKER] Recording PnL for all existing markets at new market opening`);
             await this.recordAllMarketsPnLAtNewMarketOpening(market);
             
             // Close old markets in the same category
             if (category) {
+                logger.debug(`[MARKET-TRACKER] Closing old markets in category: ${category}`);
+                const closeOldStartTime = Date.now();
                 await this.closeOldMarketsInCategory(market, category);
+                logger.debug(`[MARKET-TRACKER] closeOldMarketsInCategory() completed in ${Date.now() - closeOldStartTime}ms`);
             }
             
             // Enforce max markets limit
+            logger.debug(`[MARKET-TRACKER] Enforcing max markets limit (max=${this.maxMarkets})`);
+            const enforceMaxStartTime = Date.now();
             await this.enforceMaxMarkets();
+            logger.debug(`[MARKET-TRACKER] enforceMaxMarkets() completed in ${Date.now() - enforceMaxStartTime}ms, markets count=${this.markets.size}`);
             
             // Force immediate display update for new markets
             if (isNewMarket) {
                 this.lastDisplayTime = 0; // Force display on next call
+                logger.debug(`[MARKET-TRACKER] Forcing immediate display update for new market`);
             }
 
             // If the first trade is SELL, still register the market but don't accumulate
@@ -1728,6 +1770,8 @@ export class MarketTracker {
         }
 
         market.lastUpdate = Date.now();
+        const processDuration = Date.now() - processStartTime;
+        logger.debug(`[MARKET-TRACKER] processTrade() completed in ${processDuration}ms - marketKey=${marketKey}, sharesUp=${market.sharesUp}, sharesDown=${market.sharesDown}, investedUp=${market.investedUp}, investedDown=${market.investedDown}, tradesUp=${market.tradesUp}, tradesDown=${market.tradesDown}`);
     }
 
     /**
@@ -1772,6 +1816,15 @@ export class MarketTracker {
         if ((market.assetUp && market.assetDown) || (!market.conditionId && !market.marketSlug)) {
             return false; // Already have assets or no way to fetch them
         }
+
+        const now = Date.now();
+        const ASSET_FETCH_BACKOFF_MS = 60 * 1000; // At most once per minute per market
+
+        if (market.lastAssetFetchAttempt && now - market.lastAssetFetchAttempt < ASSET_FETCH_BACKOFF_MS) {
+            return false;
+        }
+
+        market.lastAssetFetchAttempt = now;
 
         try {
             // Try fetching by slug first (more reliable for new 15-min markets)
@@ -1819,8 +1872,15 @@ export class MarketTracker {
 
     private async fetchCurrentPricesFromAPI(market: MarketStats): Promise<void> {
         try {
+            logger.info(
+                `[PRICE-FETCH] Start for ${market.marketKey} (slug=${market.marketSlug || 'n/a'}, conditionId=${market.conditionId || 'n/a'})`
+            );
+
             // If asset IDs are missing, try to fetch them first
             if (!market.assetUp || !market.assetDown) {
+                logger.info(
+                    `[PRICE-FETCH] ${market.marketKey}: assetUp/assetDown missing, attempting to fetch from Gamma`
+                );
                 await this.fetchAssetIdsIfMissing(market);
             }
 
@@ -1842,6 +1902,9 @@ export class MarketTracker {
             }
 
             if (wsMarketType) {
+                logger.info(
+                    `[PRICE-FETCH] ${market.marketKey}: looking up WebSocket market type ${wsMarketType}`
+                );
                 const currentMarkets = priceStreamLogger.getCurrentMarkets();
                 const wsMarket = currentMarkets.get(wsMarketType);
 
@@ -1855,6 +1918,10 @@ export class MarketTracker {
                         const wsDownPrice = priceStreamLogger.getMidPrice(downToken.token_id);
 
                         if (wsUpPrice !== null && wsDownPrice !== null && wsUpPrice > 0 && wsDownPrice > 0) {
+                            logger.info(
+                                `[PRICE-FETCH] ${market.marketKey}: got prices from WebSocket type=${wsMarketType} ` +
+                                `UP=${wsUpPrice.toFixed(4)} DOWN=${wsDownPrice.toFixed(4)}`
+                            );
                             market.currentPriceUp = wsUpPrice;
                             market.currentPriceDown = wsDownPrice;
                             market.lastPriceUpdate = Date.now();
@@ -1863,63 +1930,115 @@ export class MarketTracker {
                             market.assetUp = upToken.token_id;
                             market.assetDown = downToken.token_id;
                             return; // Successfully got prices from WebSocket
+                        } else {
+                            logger.info(
+                                `[PRICE-FETCH] ${market.marketKey}: WebSocket prices missing/invalid (up=${wsUpPrice}, down=${wsDownPrice})`
+                            );
                         }
+                    } else {
+                        logger.info(
+                            `[PRICE-FETCH] ${market.marketKey}: WebSocket market ${wsMarketType} missing UP/DOWN tokens`
+                        );
                     }
+                } else {
+                    logger.info(
+                        `[PRICE-FETCH] ${market.marketKey}: no current WebSocket market found for type ${wsMarketType}`
+                    );
                 }
             }
 
             // SECOND: Try WebSocket prices using dashboard's asset IDs (may work if same window)
             if (market.assetUp && market.assetDown) {
+                logger.info(
+                    `[PRICE-FETCH] ${market.marketKey}: trying WebSocket prices by asset IDs ` +
+                    `(assetUp=${market.assetUp}, assetDown=${market.assetDown})`
+                );
                 const wsUpPrice = priceStreamLogger.getMidPrice(market.assetUp);
                 const wsDownPrice = priceStreamLogger.getMidPrice(market.assetDown);
 
                 if (wsUpPrice !== null && wsDownPrice !== null && wsUpPrice > 0 && wsDownPrice > 0) {
+                    logger.info(
+                        `[PRICE-FETCH] ${market.marketKey}: got prices from WebSocket by asset IDs ` +
+                        `UP=${wsUpPrice.toFixed(4)} DOWN=${wsDownPrice.toFixed(4)}`
+                    );
                     market.currentPriceUp = wsUpPrice;
                     market.currentPriceDown = wsDownPrice;
                     market.lastPriceUpdate = Date.now();
                     return; // Successfully got prices from WebSocket
+                } else {
+                    logger.info(
+                        `[PRICE-FETCH] ${market.marketKey}: WebSocket asset-ID prices missing/invalid (up=${wsUpPrice}, down=${wsDownPrice})`
+                    );
                 }
             }
 
             // FALLBACK: Always try order book prices via HTTP if WebSocket didn't work
             // This ensures we get prices even if WebSocket is unavailable
             if (market.assetUp && market.assetDown) {
+                logger.info(
+                    `[PRICE-FETCH] ${market.marketKey}: falling back to order book for assetUp=${market.assetUp}, assetDown=${market.assetDown}`
+                );
                 const [priceUpFromBook, priceDownFromBook] = await Promise.all([
                     this.fetchOrderBookPrice(market.assetUp),
                     this.fetchOrderBookPrice(market.assetDown),
                 ]);
 
                 if (priceUpFromBook !== null && priceDownFromBook !== null) {
+                    logger.info(
+                        `[PRICE-FETCH] ${market.marketKey}: got prices from order book ` +
+                        `UP=${priceUpFromBook.toFixed(4)} DOWN=${priceDownFromBook.toFixed(4)}`
+                    );
                     market.currentPriceUp = priceUpFromBook;
                     market.currentPriceDown = priceDownFromBook;
                     market.lastPriceUpdate = Date.now();
                     return; // Successfully got prices from order book
+                } else {
+                    logger.info(
+                        `[PRICE-FETCH] ${market.marketKey}: order book prices missing/invalid (up=${priceUpFromBook}, down=${priceDownFromBook})`
+                    );
                 }
             }
             
             // If we still don't have prices and asset IDs are missing, try one more time to fetch them
             // This handles cases where asset IDs weren't available initially
             if ((!market.currentPriceUp || !market.currentPriceDown) && (!market.assetUp || !market.assetDown)) {
+                logger.info(
+                    `[PRICE-FETCH] ${market.marketKey}: still missing prices and assets, re-attempting asset fetch`
+                );
                 const fetchedAssets = await this.fetchAssetIdsIfMissing(market);
                 if (fetchedAssets && market.assetUp && market.assetDown) {
                     // Try order book one more time with newly fetched asset IDs
+                    logger.info(
+                        `[PRICE-FETCH] ${market.marketKey}: got assets from Gamma on retry, trying order book again`
+                    );
                     const [priceUpFromBook, priceDownFromBook] = await Promise.all([
                         this.fetchOrderBookPrice(market.assetUp),
                         this.fetchOrderBookPrice(market.assetDown),
                     ]);
 
                     if (priceUpFromBook !== null && priceDownFromBook !== null) {
+                        logger.info(
+                            `[PRICE-FETCH] ${market.marketKey}: got prices from order book on retry ` +
+                            `UP=${priceUpFromBook.toFixed(4)} DOWN=${priceDownFromBook.toFixed(4)}`
+                        );
                         market.currentPriceUp = priceUpFromBook;
                         market.currentPriceDown = priceDownFromBook;
                         market.lastPriceUpdate = Date.now();
                         return; // Successfully got prices from order book
+                    } else {
+                        logger.info(
+                            `[PRICE-FETCH] ${market.marketKey}: order book retry still missing/invalid (up=${priceUpFromBook}, down=${priceDownFromBook})`
+                        );
                     }
                 }
             }
 
             market.lastPriceUpdate = Date.now();
         } catch (e) {
-            // Silently fail - will retry on next update
+            logger.warn(
+                `[PRICE-FETCH] ${market.marketKey}: exception during price fetch, will retry later`,
+                e
+            );
         }
     }
 
@@ -1939,6 +2058,9 @@ export class MarketTracker {
         const shouldFetchFromAPI = force || hasNoPrices || isStale;
 
         if (shouldFetchFromAPI) {
+            logger.info(
+                `[PRICE-FETCH] ${market.marketKey}: fetchCurrentPrices(force=${force}, hasNoPrices=${hasNoPrices}, isStale=${isStale})`
+            );
             await this.fetchCurrentPricesFromAPI(market);
         }
 
@@ -1993,14 +2115,21 @@ export class MarketTracker {
      * Display market statistics
      */
     async displayStats(): Promise<void> {
+        const displayStartTime = Date.now();
+        logger.debug(`[MARKET-TRACKER] displayStats() called, isDisplaying=${this.isDisplaying}, displayMode=${this.displayMode}, markets=${this.markets.size}`);
+        
         // Prevent concurrent display updates
         if (this.isDisplaying) {
+            logger.debug(`[MARKET-TRACKER] displayStats() skipped - already displaying`);
             return;
         }
 
         // Proactively discover markets if in watch mode (auto-discovers BTC/ETH 15m and 1h markets)
         if (this.displayMode === 'WATCH' || this.displayMode === 'PAPER') {
+            logger.debug(`[MARKET-TRACKER] Proactively discovering 15-min markets (mode: ${this.displayMode})`);
+            const discoveryStartTime = Date.now();
             await this.proactivelyDiscover15MinMarkets();
+            logger.debug(`[MARKET-TRACKER] Proactive discovery completed in ${Date.now() - discoveryStartTime}ms`);
         }
 
         const now = Date.now();
@@ -2015,18 +2144,23 @@ export class MarketTracker {
                             timeSinceLastDisplay >= this.displayInterval || 
                             this.lastDisplayTime === 0;
         
+        logger.debug(`[MARKET-TRACKER] Display update check: hasNewMarket=${hasNewMarket}, timeSinceLastDisplay=${timeSinceLastDisplay}ms, displayInterval=${this.displayInterval}ms, lastDisplayTime=${this.lastDisplayTime}, shouldUpdate=${shouldUpdate}`);
+        
         if (!shouldUpdate) {
+            logger.debug(`[MARKET-TRACKER] displayStats() skipped - not time to update yet`);
             return;
         }
         
         // Set lock
         this.isDisplaying = true;
+        logger.debug(`[MARKET-TRACKER] Display lock acquired, starting update`);
         
         try {
             // Update tracking variables
             const previousMarketCount = this.lastMarketCount;
             this.lastDisplayTime = now;
             this.lastMarketCount = this.markets.size;
+            logger.debug(`[MARKET-TRACKER] Market count: previous=${previousMarketCount}, current=${this.markets.size}`);
 
         if (this.markets.size === 0) {
             // Show empty state if we had markets before but now have none
@@ -2870,9 +3004,13 @@ export class MarketTracker {
 
         // Clear any remaining lines below (in case previous output was longer)
         process.stdout.write('\x1b[0J');
+        const displayDuration = Date.now() - displayStartTime;
+        logger.debug(`[MARKET-TRACKER] displayStats() completed successfully in ${displayDuration}ms`);
         } finally {
             // Release lock
             this.isDisplaying = false;
+            const finalDisplayDuration = Date.now() - displayStartTime;
+            logger.debug(`[MARKET-TRACKER] displayStats() finally block - lock released, total duration=${finalDisplayDuration}ms`);
         }
     }
 
@@ -3151,13 +3289,18 @@ export class MarketTracker {
     private discoveredSlugs: Set<string> = new Set(); // Track already discovered slugs
 
     async proactivelyDiscover15MinMarkets(): Promise<void> {
+        const discoveryStartTime = Date.now();
         const now = Date.now();
+        logger.debug(`[MARKET-TRACKER] proactivelyDiscover15MinMarkets() called, lastProactiveDiscovery=${this.lastProactiveDiscovery}, interval=${this.proactiveDiscoveryInterval}ms`);
 
         // Rate limit: check every 1 second
         if (now - this.lastProactiveDiscovery < this.proactiveDiscoveryInterval) {
+            const timeSinceLast = now - this.lastProactiveDiscovery;
+            logger.debug(`[MARKET-TRACKER] proactivelyDiscover15MinMarkets() skipped - rate limited (${timeSinceLast}ms < ${this.proactiveDiscoveryInterval}ms)`);
             return;
         }
         this.lastProactiveDiscovery = now;
+        logger.debug(`[MARKET-TRACKER] proactivelyDiscover15MinMarkets() starting discovery, current markets=${this.markets.size}`);
 
         // Calculate current AND next 15-min window starts (like paper mode)
         const current15MinStart = Math.floor(now / (15 * 60 * 1000)) * (15 * 60 * 1000);
@@ -3173,6 +3316,7 @@ export class MarketTracker {
             `btc-updown-15m-${next15MinTimestamp}`,
             `eth-updown-15m-${next15MinTimestamp}`,
         ];
+        logger.debug(`[MARKET-TRACKER] proactivelyDiscover15MinMarkets() - checking ${slugsToCheck.length} slugs:`, slugsToCheck);
 
         // Also check for 1-hour markets
         const etFormatter = new Intl.DateTimeFormat('en-US', {
@@ -3266,7 +3410,7 @@ export class MarketTracker {
 
             // DEBUG: Log which slugs we're probing for 15-minute discovery
             if (is15Min && slug.includes('updown-15m')) {
-                console.debug(
+                logger.info(
                     `[MARKET-TRACKER DEBUG] Probing 15m slug=${slug} -> marketKey=${marketKey}`
                 );
             }
@@ -3296,12 +3440,12 @@ export class MarketTracker {
                 const data = await fetchData(url).catch(() => null);
 
                 if (data && Array.isArray(data) && data.length > 0) {
-                    console.debug(
+                    logger.info(
                         `[MARKET-TRACKER DEBUG] Gamma returned ${data.length} event(s) for slug=${slug}`
                     );
                     return { slug, data: data[0], marketKey, is15Min, is1Hour, isBTC };
                 }
-                console.debug(
+                logger.info(
                     `[MARKET-TRACKER DEBUG] Gamma returned NO events for slug=${slug}`
                 );
             } catch {

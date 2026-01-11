@@ -237,6 +237,8 @@ export class PolymarketBot {
    */
   async runCycle(): Promise<void> {
     try {
+      logger.debug("=== Bot cycle start ===");
+
       // Update strategy context
       const positions = this.isPaperMode
         ? this.paperTrader.getAllPositions()

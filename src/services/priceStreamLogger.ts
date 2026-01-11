@@ -569,21 +569,34 @@ class MarketDiscovery {
           
           // If current market has ended, switch to next market
           if (currentTimeLeft <= 0 && next) {
-            log('info', `[${marketType}] Current market has ended, switching to next: ${next.question}`);
+            const oldCurrent = current;
+            log('info', `[${marketType}] 🔄 MARKET SWITCH - Current market has ended (timeLeft=${(currentTimeLeft/1000).toFixed(1)}s), switching to next: ${next.question}`);
+            log('debug', `[${marketType}] MARKET SWITCH DETAILS - Old: ${oldCurrent.question} (${oldCurrent.slug}), New: ${next.question} (${next.slug})`);
             current = next;
             next = null;
+          } else if (currentTimeLeft > 0) {
+            log('debug', `[${marketType}] Market still active - ${current.question}, timeLeft=${(currentTimeLeft/1000/60).toFixed(1)}min`);
           }
         } else if (next) {
           // No current market found, but we have a next market - use it (market might have just ended)
-          log('info', `[${marketType}] No current market found, using next market: ${next.question}`);
+          log('info', `[${marketType}] 🔄 MARKET SWITCH - No current market found, using next market: ${next.question}`);
+          log('debug', `[${marketType}] MARKET SWITCH DETAILS - Next market: ${next.question} (${next.slug}), startTime=${next.start_time_iso}, endTime=${next.end_date_iso}`);
           current = next;
           next = null;
         }
 
         if (current) {
+          const previousCurrent = this.currentMarkets.get(marketType);
           this.currentMarkets.set(marketType, current);
           const tokenIds = current.tokens.map(t => t.token_id.slice(0, 12) + '...').join(', ');
-          log('info', `[${marketType}] Current: ${current.question} | Tokens: [${tokenIds}]`);
+          
+          if (previousCurrent && previousCurrent.slug !== current.slug) {
+            log('info', `[${marketType}] 🔄 MARKET CHANGED - Previous: ${previousCurrent.question} (${previousCurrent.slug}) -> New: ${current.question} (${current.slug})`);
+          }
+          
+          log('info', `[${marketType}] Current: ${current.question} | Tokens: [${tokenIds}] | Start: ${current.start_time_iso} | End: ${current.end_date_iso}`);
+        } else {
+          log('warn', `[${marketType}] No current market found after processing`);
         }
         if (next) {
           this.nextMarkets.set(marketType, next);
@@ -650,6 +663,10 @@ class MarketDiscovery {
       }
     });
     return assetIds;
+  }
+
+  getNextMarkets(): Map<string, MarketInfo> {
+    return this.nextMarkets;
   }
 
   getMarketByAssetId(assetId: string): MarketInfo | null {
@@ -1292,12 +1309,16 @@ class PriceStreamLogger {
     // Combine current and next asset IDs for subscription
     const allAssetIds = [...new Set([...this.currentAssetIds, ...nextAssetIds])];
 
+    // Count markets (each market has 2 tokens: UP and DOWN)
+    const currentMarketCount = this.marketDiscovery.getCurrentMarkets().size;
+    const nextMarketCount = this.marketDiscovery.getNextMarkets().size;
+
     const subscribeMsg = {
       assets_ids: allAssetIds,
       type: 'market',
     };
 
-    log('info', `Subscribing to ${allAssetIds.length} assets (${this.currentAssetIds.length} current + ${nextAssetIds.length} next)`);
+    log('info', `Subscribing to ${allAssetIds.length} assets (${currentMarketCount} current markets + ${nextMarketCount} next markets)`);
     this.ws.send(JSON.stringify(subscribeMsg));
   }
 
@@ -1331,31 +1352,46 @@ class PriceStreamLogger {
   }
 
   private processEvent(event: MarketEvent): void {
-    if (!event.event_type) return;
+    if (!event.event_type) {
+      log('debug', '[PRICE-STREAM] processEvent() - event missing event_type');
+      return;
+    }
 
-    switch (event.event_type) {
+    const eventType = event.event_type;
+    log('debug', `[PRICE-STREAM] processEvent() - event_type=${eventType}, market=${(event as any).market || 'N/A'}`);
+
+    switch (eventType) {
       case 'book':
-        this.handleBookEvent(event);
+        this.handleBookEvent(event as BookEvent);
         break;
       case 'price_change':
-        this.handlePriceChangeEvent(event);
+        this.handlePriceChangeEvent(event as PriceChangeEvent);
         break;
       case 'last_trade_price':
-        this.handleLastTradePriceEvent(event);
+        this.handleLastTradePriceEvent(event as LastTradePriceEvent);
         break;
       case 'best_bid_ask':
-        this.handleBestBidAskEvent(event);
+        this.handleBestBidAskEvent(event as BestBidAskEvent);
         break;
+      default:
+        log('debug', `[PRICE-STREAM] processEvent() - unknown event_type: ${eventType}`);
     }
   }
 
   private handleBookEvent(event: BookEvent): void {
     const { asset_id, market, bids, asks, timestamp } = event;
-    if (!this.assetStates.has(asset_id)) return;
+    log('debug', `[PRICE-STREAM] handleBookEvent() - asset_id=${asset_id}, market=${market}, bids=${bids.length}, asks=${asks.length}, timestamp=${timestamp}`);
+    
+    if (!this.assetStates.has(asset_id)) {
+      log('debug', `[PRICE-STREAM] handleBookEvent() - asset_id ${asset_id} not in assetStates, skipping`);
+      return;
+    }
 
     const state = this.assetStates.get(asset_id)!;
     const bestBid = getBestFromBook(bids, true);
     const bestAsk = getBestFromBook(asks, false);
+
+    log('debug', `[PRICE-STREAM] handleBookEvent() - asset_id=${asset_id}, bestBid=${bestBid}, bestAsk=${bestAsk}, previous bestBid=${state.bestBid}, previous bestAsk=${state.bestAsk}`);
 
     state.bestBid = bestBid;
     state.bestAsk = bestAsk;
@@ -1364,29 +1400,47 @@ class PriceStreamLogger {
     const midPrice = computeMidPrice(bestBid, bestAsk);
     const price = midPrice ?? state.lastTradePrice;
 
+    log('debug', `[PRICE-STREAM] handleBookEvent() - asset_id=${asset_id}, midPrice=${midPrice}, finalPrice=${price}, lastTradePrice=${state.lastTradePrice}`);
+
     if (price !== null) {
       this.maybeWriteRow(asset_id, price, bestBid, bestAsk, timestamp);
+    } else {
+      log('debug', `[PRICE-STREAM] handleBookEvent() - asset_id=${asset_id}, price is null, skipping write`);
     }
   }
 
   private handlePriceChangeEvent(event: PriceChangeEvent): void {
     const { market, price_changes, timestamp } = event;
+    log('debug', `[PRICE-STREAM] handlePriceChangeEvent() - market=${market}, price_changes=${price_changes.length}, timestamp=${timestamp}`);
 
     for (const change of price_changes) {
       const { asset_id, best_bid, best_ask } = change;
-      if (!this.assetStates.has(asset_id)) continue;
+      log('debug', `[PRICE-STREAM] handlePriceChangeEvent() - processing change: asset_id=${asset_id}, best_bid=${best_bid}, best_ask=${best_ask}`);
+      
+      if (!this.assetStates.has(asset_id)) {
+        log('debug', `[PRICE-STREAM] handlePriceChangeEvent() - asset_id ${asset_id} not in assetStates, skipping`);
+        continue;
+      }
 
       const state = this.assetStates.get(asset_id)!;
+      const oldBid = state.bestBid;
+      const oldAsk = state.bestAsk;
       state.marketConditionId = market;
 
       if (best_bid !== undefined) state.bestBid = safeParseNumber(best_bid);
       if (best_ask !== undefined) state.bestAsk = safeParseNumber(best_ask);
 
+      log('debug', `[PRICE-STREAM] handlePriceChangeEvent() - asset_id=${asset_id}, bestBid: ${oldBid} -> ${state.bestBid}, bestAsk: ${oldAsk} -> ${state.bestAsk}`);
+
       const midPrice = computeMidPrice(state.bestBid, state.bestAsk);
       const price = midPrice ?? state.lastTradePrice;
 
+      log('debug', `[PRICE-STREAM] handlePriceChangeEvent() - asset_id=${asset_id}, midPrice=${midPrice}, finalPrice=${price}, lastTradePrice=${state.lastTradePrice}`);
+
       if (price !== null) {
         this.maybeWriteRow(asset_id, price, state.bestBid, state.bestAsk, timestamp);
+      } else {
+        log('debug', `[PRICE-STREAM] handlePriceChangeEvent() - asset_id=${asset_id}, price is null, skipping write`);
       }
     }
   }

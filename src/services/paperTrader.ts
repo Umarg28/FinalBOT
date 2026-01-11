@@ -381,7 +381,7 @@ export class PaperTrader {
     for (const [tokenId, position] of this.account.positions.entries()) {
       try {
         const currentPrice = await this.marketData.getMidPrice(tokenId);
-        if (currentPrice !== null) {
+        if (currentPrice !== null && Number.isFinite(currentPrice)) {
           const positionValue = currentPrice * position.size;
           totalPositionValue += positionValue;
           positionsToSettle.push(position);
@@ -401,6 +401,12 @@ export class PaperTrader {
         positionsToSettle.push(position);
         logger.paper(`Settling position (error fetching price): ${position.outcome} ${position.size.toFixed(2)} shares @ $${position.avgPrice.toFixed(4)} = $${fallbackValue.toFixed(2)}`);
       }
+    }
+
+    // Guard against any unexpected NaN accumulation
+    if (!Number.isFinite(totalPositionValue)) {
+      logger.warn("Total position value for new market window is NaN; defaulting to 0");
+      totalPositionValue = 0;
     }
 
     // Remove all settled positions

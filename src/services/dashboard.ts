@@ -61,47 +61,57 @@ export class Dashboard {
    * Accepts condition IDs or slugs
    */
   async addMarkets(identifiers: string[]): Promise<void> {
+    logger.debug(`[DASHBOARD] addMarkets called with ${identifiers.length} identifier(s):`, identifiers);
     const maxMarkets = 4;
     const marketsToAdd = identifiers.slice(0, maxMarkets);
+    logger.debug(`[DASHBOARD] Processing ${marketsToAdd.length} market(s) (max: ${maxMarkets})`);
 
     for (const identifier of marketsToAdd) {
       try {
+        logger.debug(`[DASHBOARD] Processing identifier: ${identifier}`);
         let market: Market | null = null;
 
         // Check if it's a condition ID (starts with 0x) or a slug
         if (identifier.startsWith('0x') && identifier.length >= 10) {
           // It's a condition ID
+          logger.debug(`[DASHBOARD] Identifier appears to be condition ID, calling getMarket(${identifier})`);
           market = await this.marketData.getMarket(identifier);
+          logger.debug(`[DASHBOARD] getMarket(${identifier}) returned:`, market ? `Found market: ${market.question}` : 'null');
         } else {
           // It's likely a slug, try to find by slug
+          logger.debug(`[DASHBOARD] Identifier appears to be slug, calling getMarketBySlug(${identifier})`);
           market = await this.marketData.getMarketBySlug(identifier);
+          logger.debug(`[DASHBOARD] getMarketBySlug(${identifier}) returned:`, market ? `Found market: ${market.question}` : 'null');
         }
 
         if (market && market.active) {
+          logger.debug(`[DASHBOARD] Market found and active: ${market.conditionId} - ${market.question}`);
           const positions = this.paperTrader
             ? this.paperTrader.getAllPositions().filter((p) => p.conditionId === market.conditionId)
             : [];
+          logger.debug(`[DASHBOARD] Found ${positions.length} position(s) for market ${market.conditionId}`);
 
           this.markets.push({
             market,
             positions,
           });
+          logger.info(`[DASHBOARD] Successfully added market to dashboard: ${market.conditionId} - ${market.question.substring(0, 50)}...`);
         } else if (market && !market.active) {
-          logger.debug(`Skipping inactive market: ${identifier}`);
+          logger.warn(`[DASHBOARD] Skipping inactive market: ${identifier} (conditionId: ${market.conditionId})`);
         } else {
-          logger.debug(`Market not found: ${identifier}`);
+          logger.warn(`[DASHBOARD] Market not found for identifier: ${identifier}`);
         }
       } catch (error) {
-        // Silently skip invalid markets and continue
-        logger.debug(`Failed to add market ${identifier}, skipping: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        logger.error(`[DASHBOARD] Failed to add market ${identifier}, skipping:`, error);
+        logger.debug(`[DASHBOARD] Error details: ${error instanceof Error ? error.message : 'Unknown error'}, stack: ${error instanceof Error ? error.stack : 'N/A'}`);
         continue;
       }
     }
 
     if (this.markets.length === 0) {
-      logger.warn("No valid markets found to display. Dashboard will be empty.");
+      logger.warn("[DASHBOARD] No valid markets found to display. Dashboard will be empty.");
     } else {
-      logger.info(`Successfully added ${this.markets.length} market(s) to dashboard`);
+      logger.info(`[DASHBOARD] Successfully added ${this.markets.length} market(s) to dashboard. Total markets: ${this.markets.length}`);
     }
   }
 
@@ -109,44 +119,89 @@ export class Dashboard {
    * Update market data for all tracked markets
    */
   async updateMarketData(): Promise<void> {
+    const startTime = Date.now();
+    logger.debug(`[DASHBOARD] updateMarketData START - Tracking ${this.markets.length} market(s)`);
+    logger.info(
+      `[DASHBOARD] Updating market data for ${this.markets.length} market(s)` +
+      (this.paperTrader ? " in PAPER mode" : this.traderAddresses.length > 0 ? " in WATCH mode" : "")
+    );
+    
     // First, update all position prices if in paper mode
     if (this.paperTrader) {
+      logger.debug(`[DASHBOARD] Paper trader enabled, updating position prices`);
       const positions = this.paperTrader.getAllPositions();
+      logger.debug(`[DASHBOARD] Found ${positions.length} total position(s) to update`);
       for (const position of positions) {
         try {
+          logger.debug(`[DASHBOARD] Fetching mid price for position: tokenId=${position.tokenId}, conditionId=${position.conditionId}, size=${position.size}`);
           const currentPrice = await this.marketData.getMidPrice(position.tokenId);
           if (currentPrice !== null) {
+            const oldPrice = position.currentPrice;
             position.currentPrice = currentPrice;
             position.currentValue = currentPrice * position.size;
             position.cashPnl = (currentPrice - position.avgPrice) * position.size;
             position.percentPnl = ((currentPrice - position.avgPrice) / position.avgPrice) * 100;
+            logger.debug(`[DASHBOARD] Updated position price: tokenId=${position.tokenId}, oldPrice=${oldPrice}, newPrice=${currentPrice}, cashPnl=${position.cashPnl.toFixed(4)}, percentPnl=${position.percentPnl.toFixed(2)}%`);
+          } else {
+            logger.warn(
+              `[DASHBOARD] No current price returned for position token=${position.tokenId} condition=${position.conditionId}`
+            );
           }
         } catch (error) {
-          // Silently fail for individual positions
+          logger.error(
+            `[DASHBOARD] Failed to update position price for token=${position.tokenId} condition=${position.conditionId}:`,
+            error
+          );
         }
       }
     }
 
     // Then update market prices and positions
-    for (const dashboardMarket of this.markets) {
+    logger.debug(`[DASHBOARD] Starting market price updates for ${this.markets.length} market(s)`);
+    for (let i = 0; i < this.markets.length; i++) {
+      const dashboardMarket = this.markets[i];
       try {
         const market = dashboardMarket.market;
+        logger.debug(`[DASHBOARD] [${i+1}/${this.markets.length}] Updating market: conditionId=${market.conditionId}, question=${market.question.substring(0, 50)}...`);
         
         // For binary markets, get prices for both outcomes
         if (market.outcomes && market.outcomes.length === 2) {
           const upTokenId = `${market.conditionId}:0`;
           const downTokenId = `${market.conditionId}:1`;
 
+          logger.debug(`[DASHBOARD] Market ${market.conditionId} is binary, fetching prices for UP (${upTokenId}) and DOWN (${downTokenId})`);
+          
           // Get UP prices
+          logger.debug(`[DASHBOARD] Fetching UP prices for tokenId=${upTokenId}`);
+          const upBuyPriceStart = Date.now();
           const upBuyPrice = await this.marketData.getPrice(upTokenId, "BUY");
+          logger.debug(`[DASHBOARD] UP BUY price fetched in ${Date.now() - upBuyPriceStart}ms: ${upBuyPrice}`);
+          
+          const upSellPriceStart = Date.now();
           const upSellPrice = await this.marketData.getPrice(upTokenId, "SELL");
+          logger.debug(`[DASHBOARD] UP SELL price fetched in ${Date.now() - upSellPriceStart}ms: ${upSellPrice}`);
+          
+          const upMidPriceStart = Date.now();
           const upMidPrice = await this.marketData.getMidPrice(upTokenId);
+          logger.debug(`[DASHBOARD] UP MID price fetched in ${Date.now() - upMidPriceStart}ms: ${upMidPrice}`);
 
           // Get DOWN prices
+          logger.debug(`[DASHBOARD] Fetching DOWN prices for tokenId=${downTokenId}`);
+          const downBuyPriceStart = Date.now();
           const downBuyPrice = await this.marketData.getPrice(downTokenId, "BUY");
+          logger.debug(`[DASHBOARD] DOWN BUY price fetched in ${Date.now() - downBuyPriceStart}ms: ${downBuyPrice}`);
+          
+          const downSellPriceStart = Date.now();
           const downSellPrice = await this.marketData.getPrice(downTokenId, "SELL");
+          logger.debug(`[DASHBOARD] DOWN SELL price fetched in ${Date.now() - downSellPriceStart}ms: ${downSellPrice}`);
+          
+          const downMidPriceStart = Date.now();
           const downMidPrice = await this.marketData.getMidPrice(downTokenId);
+          logger.debug(`[DASHBOARD] DOWN MID price fetched in ${Date.now() - downMidPriceStart}ms: ${downMidPrice}`);
 
+          const oldUpPrice = dashboardMarket.upPrice;
+          const oldDownPrice = dashboardMarket.downPrice;
+          
           dashboardMarket.upBuyPrice = upBuyPrice || undefined;
           dashboardMarket.upSellPrice = upSellPrice || undefined;
           dashboardMarket.upPrice = upMidPrice || undefined;
@@ -154,38 +209,59 @@ export class Dashboard {
           dashboardMarket.downSellPrice = downSellPrice || undefined;
           dashboardMarket.downPrice = downMidPrice || undefined;
 
+          logger.debug(`[DASHBOARD] Market ${market.conditionId} prices updated - UP: ${upMidPrice} (was ${oldUpPrice}), DOWN: ${downMidPrice} (was ${oldDownPrice})`);
+          logger.debug(`[DASHBOARD] Market ${market.conditionId} full prices - UP buy:${upBuyPrice} sell:${upSellPrice} mid:${upMidPrice}, DOWN buy:${downBuyPrice} sell:${downSellPrice} mid:${downMidPrice}`);
+
           // Calculate price changes
           if (upMidPrice !== null && dashboardMarket.previousUpPrice !== undefined) {
-            // Track changes but don't display in this format
+            const upChange = upMidPrice - dashboardMarket.previousUpPrice;
+            logger.debug(`[DASHBOARD] UP price change: ${upChange >= 0 ? '+' : ''}${upChange.toFixed(4)} (${upMidPrice} - ${dashboardMarket.previousUpPrice})`);
           }
           if (downMidPrice !== null && dashboardMarket.previousDownPrice !== undefined) {
-            // Track changes but don't display in this format
+            const downChange = downMidPrice - dashboardMarket.previousDownPrice;
+            logger.debug(`[DASHBOARD] DOWN price change: ${downChange >= 0 ? '+' : ''}${downChange.toFixed(4)} (${downMidPrice} - ${dashboardMarket.previousDownPrice})`);
           }
           if (upMidPrice !== null) dashboardMarket.previousUpPrice = upMidPrice;
           if (downMidPrice !== null) dashboardMarket.previousDownPrice = downMidPrice;
         } else {
           // For non-binary markets, use first outcome
           const tokenId = `${market.conditionId}:0`;
+          logger.debug(`[DASHBOARD] Market ${market.conditionId} is non-binary, fetching prices for tokenId=${tokenId}`);
+          const buyPriceStart = Date.now();
           const buyPrice = await this.marketData.getPrice(tokenId, "BUY");
+          logger.debug(`[DASHBOARD] BUY price fetched in ${Date.now() - buyPriceStart}ms: ${buyPrice}`);
+          
+          const sellPriceStart = Date.now();
           const sellPrice = await this.marketData.getPrice(tokenId, "SELL");
+          logger.debug(`[DASHBOARD] SELL price fetched in ${Date.now() - sellPriceStart}ms: ${sellPrice}`);
+          
+          const midPriceStart = Date.now();
           const midPrice = await this.marketData.getMidPrice(tokenId);
+          logger.debug(`[DASHBOARD] MID price fetched in ${Date.now() - midPriceStart}ms: ${midPrice}`);
+          
+          const oldPrice = dashboardMarket.upPrice;
           dashboardMarket.upPrice = midPrice || undefined;
+          logger.debug(`[DASHBOARD] Market ${market.conditionId} price updated: ${midPrice} (was ${oldPrice})`);
         }
 
         dashboardMarket.volume = market.volume;
         dashboardMarket.liquidity = market.liquidity;
+        logger.debug(`[DASHBOARD] Market ${market.conditionId} metadata - volume: ${market.volume}, liquidity: ${market.liquidity}`);
 
         // Update positions - from paper trader or tracked traders
         if (this.paperTrader) {
-          dashboardMarket.positions = this.paperTrader
-            .getAllPositions()
-            .filter((p) => p.conditionId === dashboardMarket.market.conditionId);
+          const allPositions = this.paperTrader.getAllPositions();
+          dashboardMarket.positions = allPositions.filter((p) => p.conditionId === dashboardMarket.market.conditionId);
+          logger.debug(`[DASHBOARD] Market ${market.conditionId} positions updated from paper trader: ${dashboardMarket.positions.length} position(s) (from ${allPositions.length} total)`);
         } else if (this.traderAddresses.length > 0) {
+          logger.debug(`[DASHBOARD] Fetching positions from ${this.traderAddresses.length} trader address(es) for market ${market.conditionId}`);
           // Fetch positions from tracked traders (watcher mode)
           const allPositions: Position[] = [];
           for (const address of this.traderAddresses) {
             try {
+              logger.debug(`[DASHBOARD] Fetching user positions for address: ${address.substring(0, 10)}...`);
               const userPositions = await this.marketData.getUserPositions(address);
+              logger.debug(`[DASHBOARD] Found ${userPositions.length} user position(s) for address ${address.substring(0, 10)}...`);
               userPositions.forEach((up) => {
                 if (up.conditionId === dashboardMarket.market.conditionId) {
                   // Convert UserPosition to Position format
@@ -204,19 +280,26 @@ export class Dashboard {
                     timestamp: new Date(),
                   };
                   allPositions.push(position);
+                  logger.debug(`[DASHBOARD] Added position: tokenId=${up.tokenId}, size=${up.size}, cashPnl=${up.cashPnl}`);
                 }
               });
             } catch (error) {
-              // Silently fail for individual traders
+              logger.error(`[DASHBOARD] Failed to fetch positions for trader ${address.substring(0, 10)}...:`, error);
             }
           }
           dashboardMarket.positions = allPositions;
+          logger.debug(`[DASHBOARD] Market ${market.conditionId} positions updated from watcher mode: ${allPositions.length} position(s)`);
         }
+        
+        logger.debug(`[DASHBOARD] [${i+1}/${this.markets.length}] Completed market update for ${market.conditionId}`);
       } catch (error) {
-        logger.debug(`Failed to update market data for ${dashboardMarket.market.conditionId}:`, error);
+        logger.error(`[DASHBOARD] Failed to update market data for ${dashboardMarket.market.conditionId}:`, error);
+        logger.debug(`[DASHBOARD] Error stack: ${error instanceof Error ? error.stack : 'N/A'}`);
       }
     }
     this.lastUpdate = new Date();
+    const duration = Date.now() - startTime;
+    logger.debug(`[DASHBOARD] updateMarketData COMPLETE - Took ${duration}ms, updated ${this.markets.length} market(s)`);
   }
 
   /**
@@ -581,28 +664,44 @@ export class Dashboard {
    * Start the dashboard update loop
    */
   async start(): Promise<void> {
+    logger.debug(`[DASHBOARD] start() called, isRunning=${this.isRunning}, updateInterval=${this.updateInterval}ms, markets=${this.markets.length}`);
     if (this.isRunning) {
+      logger.warn("[DASHBOARD] Dashboard is already running, ignoring start() call");
       return;
     }
 
     this.isRunning = true;
-    logger.info("Dashboard started");
+    logger.info(`[DASHBOARD] Dashboard started - Tracking ${this.markets.length} market(s), update interval: ${this.updateInterval}ms`);
 
     // Initial render
+    logger.debug("[DASHBOARD] Performing initial market data update and render");
     await this.updateMarketData();
+    logger.debug("[DASHBOARD] Initial market data update complete, rendering dashboard");
     this.render();
+    logger.debug("[DASHBOARD] Initial render complete");
 
     // Update loop
     const updateLoop = async () => {
+      let cycleCount = 0;
+      logger.debug("[DASHBOARD] Update loop started");
       while (this.isRunning) {
+        cycleCount++;
+        const cycleStartTime = Date.now();
         try {
+          logger.debug(`[DASHBOARD] Update cycle #${cycleCount} starting`);
           await this.updateMarketData();
+          logger.debug(`[DASHBOARD] Update cycle #${cycleCount} market data updated, rendering`);
           this.render();
+          const cycleDuration = Date.now() - cycleStartTime;
+          logger.debug(`[DASHBOARD] Update cycle #${cycleCount} complete, took ${cycleDuration}ms`);
         } catch (error) {
-          logger.error("Dashboard update error:", error);
+          logger.error(`[DASHBOARD] Update cycle #${cycleCount} error:`, error);
+          logger.debug(`[DASHBOARD] Error stack: ${error instanceof Error ? error.stack : 'N/A'}`);
         }
+        logger.debug(`[DASHBOARD] Sleeping for ${this.updateInterval}ms before next cycle`);
         await this.sleep(this.updateInterval);
       }
+      logger.debug("[DASHBOARD] Update loop exited (isRunning=false)");
     };
 
     updateLoop();
@@ -612,8 +711,9 @@ export class Dashboard {
    * Stop the dashboard
    */
   stop(): void {
+    logger.debug(`[DASHBOARD] stop() called, isRunning=${this.isRunning}`);
     this.isRunning = false;
-    logger.info("Dashboard stopped");
+    logger.info(`[DASHBOARD] Dashboard stopped - Was tracking ${this.markets.length} market(s)`);
   }
 
   /**
