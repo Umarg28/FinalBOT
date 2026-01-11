@@ -934,6 +934,7 @@ class PriceStreamLogger {
   private currentAssetIds: string[] = [];
   private pendingRows: Map<string, PendingRow> = new Map();
   private lastDiscoveryTime = 0; // Throttle expensive market discovery calls
+  private nextSwitchTimeout: NodeJS.Timeout | null = null; // Precise scheduling for next window switch
 
   // For trade entry marking
   private loggedTradeEntries: Set<string> = new Set();
@@ -994,6 +995,11 @@ class PriceStreamLogger {
     this.stopPingInterval();
     this.stopMarketCheckInterval();
 
+    if (this.nextSwitchTimeout) {
+      clearTimeout(this.nextSwitchTimeout);
+      this.nextSwitchTimeout = null;
+    }
+
     if (this.ws) {
       this.ws.close(1000, 'Shutdown');
     }
@@ -1010,9 +1016,11 @@ class PriceStreamLogger {
 
   private async discoverAndConnect(): Promise<void> {
     const now = Date.now();
-    const MIN_DISCOVERY_INTERVAL_MS = 3000; // Avoid hammering Gamma API during switches
+    const MIN_DISCOVERY_INTERVAL_MS = 1000; // Allow fast switching while avoiding API hammering
 
-    // Throttle discovery to at most once every few seconds
+    // Throttle discovery to at most once per second in normal operation.
+    // Precise, scheduled switches will explicitly reset lastDiscoveryTime
+    // to bypass this guard when the hour/15m window actually changes.
     if (now - this.lastDiscoveryTime < MIN_DISCOVERY_INTERVAL_MS) {
       log('debug', 'Skipping market discovery - using recently discovered markets');
       return;
@@ -1042,11 +1050,85 @@ class PriceStreamLogger {
     this.currentAssetIds = assetIds;
     this.initializeAssetStates(assetIds);
 
+    // Schedule a precise refresh at the earliest market end time so that
+    // new BTC/ETH 15m and 1h windows are picked up with <1s delay.
+    this.scheduleNextSwitch(currentMarkets);
+
     if (this.ws) {
       this.ws.close(1000, 'Market switch');
     }
 
     this.connect();
+  }
+
+  private scheduleNextSwitch(currentMarkets: Map<string, MarketInfo>): void {
+    if (this.nextSwitchTimeout) {
+      clearTimeout(this.nextSwitchTimeout);
+      this.nextSwitchTimeout = null;
+    }
+
+    const now = Date.now();
+    let nextSwitchTime = Infinity;
+
+    for (const market of currentMarkets.values()) {
+      const endTime = new Date(market.end_date_iso).getTime();
+      if (!Number.isNaN(endTime) && endTime > now && endTime < nextSwitchTime) {
+        nextSwitchTime = endTime;
+      }
+    }
+
+    if (!Number.isFinite(nextSwitchTime)) {
+      return;
+    }
+
+    // We want two things:
+    // 1) Pre-fetch the upcoming window shortly BEFORE the current window ends
+    //    so we know the next BTC/ETH markets and can be ready to trade.
+    // 2) Still perform a refresh right AFTER the window ends so that
+    //    currentMarkets cleanly switch from old -> new markets.
+    //
+    // We achieve this by scheduling:
+    // - A pre-fetch ~5 seconds before earliest end (when there is enough time),
+    // - Then, after that pre-fetch, discoverAndConnect() runs again and this
+    //   method is called a second time, which will schedule a post-end refresh.
+    const PRE_FETCH_OFFSET_MS = 5000;
+    const timeToEnd = nextSwitchTime - now;
+    let triggerTime = nextSwitchTime;
+    let mode: 'prefetch' | 'switch' = 'switch';
+
+    if (timeToEnd > PRE_FETCH_OFFSET_MS + 1000) {
+      // Plenty of time: schedule a pre-fetch 5s before end
+      triggerTime = nextSwitchTime - PRE_FETCH_OFFSET_MS;
+      mode = 'prefetch';
+    } else if (timeToEnd > 0) {
+      // Close to end: just schedule a post-end switch
+      triggerTime = nextSwitchTime + 200;
+      mode = 'switch';
+    } else {
+      // Already past end (in case of clock drift), refresh ASAP
+      triggerTime = now + 200;
+      mode = 'switch';
+    }
+
+    const delay = Math.max(triggerTime - now, 200);
+
+    this.nextSwitchTimeout = setTimeout(async () => {
+      if (this.isShuttingDown) return;
+
+      // Allow immediate discovery at the scheduled switch moment
+      this.lastDiscoveryTime = 0;
+      if (mode === 'prefetch') {
+        log('info', 'Scheduled pre-fetch reached (≈5s before window end) - refreshing markets');
+      } else {
+        log('info', 'Scheduled market switch time reached - refreshing markets immediately');
+      }
+
+      try {
+        await this.discoverAndConnect();
+      } catch (err) {
+        log('error', 'Error during scheduled market switch discovery:', err);
+      }
+    }, delay);
   }
 
   private initializeAssetStates(assetIds: string[]): void {
