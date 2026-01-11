@@ -567,22 +567,41 @@ class MarketDiscovery {
           const currentEndTime = new Date(current.end_date_iso).getTime();
           const currentTimeLeft = currentEndTime - now;
           
-          // If current market has ended, switch to next market
+          // If current market has ended, switch to next market ONLY if it has started
           if (currentTimeLeft <= 0 && next) {
-            const oldCurrent = current;
-            log('info', `[${marketType}] 🔄 MARKET SWITCH - Current market has ended (timeLeft=${(currentTimeLeft/1000).toFixed(1)}s), switching to next: ${next.question}`);
-            log('debug', `[${marketType}] MARKET SWITCH DETAILS - Old: ${oldCurrent.question} (${oldCurrent.slug}), New: ${next.question} (${next.slug})`);
-            current = next;
-            next = null;
+            const nextStartTime = new Date(next.start_time_iso).getTime();
+            const nextTimeUntilStart = nextStartTime - now;
+            
+            // CRITICAL: Only switch if next market has actually started (ET time matches)
+            // Do not switch to future markets - wait until ET time matches the market start time
+            if (nextTimeUntilStart <= 0) {
+              const oldCurrent = current;
+              log('info', `[${marketType}] 🔄 MARKET SWITCH - Current market has ended (timeLeft=${(currentTimeLeft/1000).toFixed(1)}s), switching to next: ${next.question}`);
+              log('debug', `[${marketType}] MARKET SWITCH DETAILS - Old: ${oldCurrent.question} (${oldCurrent.slug}), New: ${next.question} (${next.slug}), nextStartTime=${new Date(nextStartTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+              current = next;
+              next = null;
+            } else {
+              log('warn', `[${marketType}] ⏳ MARKET SWITCH DELAYED - Next market hasn't started yet (starts in ${(nextTimeUntilStart/1000).toFixed(1)}s at ${new Date(nextStartTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET). Current market ended but next market is still in future.`);
+            }
           } else if (currentTimeLeft > 0) {
             log('debug', `[${marketType}] Market still active - ${current.question}, timeLeft=${(currentTimeLeft/1000/60).toFixed(1)}min`);
           }
         } else if (next) {
-          // No current market found, but we have a next market - use it (market might have just ended)
-          log('info', `[${marketType}] 🔄 MARKET SWITCH - No current market found, using next market: ${next.question}`);
-          log('debug', `[${marketType}] MARKET SWITCH DETAILS - Next market: ${next.question} (${next.slug}), startTime=${next.start_time_iso}, endTime=${next.end_date_iso}`);
-          current = next;
-          next = null;
+          // No current market found, but we have a next market
+          // CRITICAL: Only use next market if it has actually started (ET time matches)
+          const nextStartTime = new Date(next.start_time_iso).getTime();
+          const nextTimeUntilStart = nextStartTime - now;
+          
+          if (nextTimeUntilStart <= 0) {
+            // Next market has started - use it
+            log('info', `[${marketType}] 🔄 MARKET SWITCH - No current market found, using next market (has started): ${next.question}`);
+            log('debug', `[${marketType}] MARKET SWITCH DETAILS - Next market: ${next.question} (${next.slug}), startTime=${next.start_time_iso} (${new Date(nextStartTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET), endTime=${next.end_date_iso}`);
+            current = next;
+            next = null;
+          } else {
+            // Next market hasn't started yet - don't switch, wait for ET time to match
+            log('warn', `[${marketType}] ⏳ MARKET NOT READY - Next market hasn't started yet (starts in ${(nextTimeUntilStart/1000).toFixed(1)}s at ${new Date(nextStartTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET). Will wait for ET time to match.`);
+          }
         }
 
         if (current) {

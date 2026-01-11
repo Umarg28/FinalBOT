@@ -863,13 +863,11 @@ export class MarketTracker {
         const newCategory = newMarketKey.split('-').slice(0, 3).join('-');
 
         const marketsToRemove: string[] = [];
-        const newMarketTimestamp = newMarketActivity?.timestamp 
-            ? (newMarketActivity.timestamp * 1000) // Convert from seconds to milliseconds
-            : Date.now();
+        const now = Date.now();
 
-        // For 15min markets: Always remove older ones in the same category (only one 15min market per category)
-        // For hourly markets: Only remove if we're at or over the max limit
-        const shouldEnforceSingleMarket = isUpDown15 || (isUpDown1h && this.markets.size >= this.maxMarkets);
+        // CRITICAL: Only remove markets in the SAME category that have actually ENDED
+        // Do NOT reset markets early - wait until their time is up (endDate <= now)
+        // Do NOT reset 1-hour markets when 15-min markets switch, and vice versa
 
         // Check all existing markets to find UpDown markets of the same category
         for (const [key, market] of this.markets.entries()) {
@@ -896,28 +894,37 @@ export class MarketTracker {
                 }
             }
 
+            // CRITICAL: Only process markets in the SAME category
+            // Don't reset 1-hour markets when 15-min markets switch, and vice versa
             if (existingCategory === newCategory) {
                 // Found a market in the same category
-                if (shouldEnforceSingleMarket) {
-                    // For 15min markets or when at max limit, remove older markets in same category
-                    if (market.lastUpdate < newMarketTimestamp) {
-                        marketsToRemove.push(key);
-                    }
+                // CRITICAL: Only remove if market has actually ENDED (endDate <= now)
+                // Do NOT remove markets early - wait until their time is up
+                const hasEnded = market.endDate && market.endDate <= now;
+                if (!hasEnded) {
+                    logger.debug(`[MARKET-TRACKER] removeOlderUpDown15Markets() - keeping market ${key} in category ${newCategory} (hasn't ended yet, endDate=${market.endDate ? new Date(market.endDate).toISOString() : 'N/A'})`);
+                    continue; // Skip - market hasn't ended yet
                 }
-                // For hourly markets when under max limit, allow multiple hours to coexist
+                
+                // Market has ended - mark for removal
+                marketsToRemove.push(key);
             }
         }
 
-        // Remove older markets (but first call the close callback to log PnL)
+        // Remove older markets that have ended (but first call the close callback to log PnL)
+        if (marketsToRemove.length > 0) {
+            logger.info(`[MARKET-TRACKER] removeOlderUpDown15Markets() - removing ${marketsToRemove.length} ended market(s) in category ${newCategory}: ${marketsToRemove.join(', ')}`);
+        }
         for (const key of marketsToRemove) {
             const marketToRemove = this.markets.get(key);
             if (marketToRemove && this.onMarketCloseCallback) {
                 // Call the close callback before removing to ensure PnL is logged
                 this.onMarketCloseCallback(marketToRemove).catch(error => {
-                    console.error(`Error in close callback for removed market ${key}:`, error);
+                    logger.error(`[MARKET-TRACKER] Error in close callback for removed market ${key}:`, error);
                 });
             }
             this.markets.delete(key);
+            logger.debug(`[MARKET-TRACKER] removeOlderUpDown15Markets() - deleted market ${key}, markets count now=${this.markets.size}`);
         }
     }
 
@@ -941,9 +948,12 @@ export class MarketTracker {
         }
 
         const baseName = this.getBaseMarketName(newMarket.marketName);
+        const now = Date.now();
         logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() - newTimeWindow=${newTimeWindow}, baseName=${baseName}, checking ${this.markets.size} markets`);
         
         // Find markets with the same base name but different (earlier) time windows
+        // CRITICAL: Only remove markets that have actually ENDED (endDate < now)
+        // Don't remove markets just because a new one started - wait until old market has fully ended
         const marketsToRemove: string[] = [];
         
         for (const [key, market] of this.markets.entries()) {
@@ -956,6 +966,13 @@ export class MarketTracker {
                 const marketTimeWindow = this.extractTimeWindow(market.marketName);
                 logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() - checking market ${key}, marketBaseName=${marketBaseName}, marketTimeWindow=${marketTimeWindow}`);
                 if (marketTimeWindow && marketTimeWindow !== newTimeWindow) {
+                    
+                    // CRITICAL: Only remove if market has actually ended (endDate < now)
+                    const hasEnded = market.endDate && market.endDate <= now;
+                    if (!hasEnded) {
+                        logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() - keeping market ${key} (hasn't ended yet, endDate=${market.endDate ? new Date(market.endDate).toISOString() : 'N/A'}, now=${new Date(now).toISOString()})`);
+                        continue; // Skip - market hasn't ended yet
+                    }
                     // Extract start times to compare
                     const newStart = newTimeWindow.split(/[-–]/)[0].trim();
                     const marketStart = marketTimeWindow.split(/[-–]/)[0].trim();
@@ -1114,25 +1131,29 @@ export class MarketTracker {
             }
             
             // For 1-hour markets: When a new hour market starts, close the previous hour
-            // This ensures we switch to the new hour market for trading
+            // BUT only if the previous hour market has actually ENDED
+            // Don't close markets just because a new one started - wait until old market has fully ended
             // Check if newMarket has a different hour than existing markets
             const newMarketHour = this.extractHourFromMarketKey(newMarket.marketKey);
             if (newMarketHour !== null) {
-                // Find markets from previous hours (different hour number)
+                // Find markets from previous hours (different hour number) that have actually ENDED
                 const previousHourMarkets = marketsInCategory.filter(m => {
                     const marketHour = this.extractHourFromMarketKey(m.market.marketKey);
-                    return marketHour !== null && marketHour !== newMarketHour;
+                    const isDifferentHour = marketHour !== null && marketHour !== newMarketHour;
+                    // CRITICAL: Only include markets that have actually ended
+                    const hasEnded = m.market.endDate && m.market.endDate <= now;
+                    return isDifferentHour && hasEnded;
                 });
-                
+
                 if (previousHourMarkets.length > 0) {
-                    // Close all previous hour markets (switch to new hour)
+                    // Close all previous hour markets that have ended (switch to new hour)
                     for (const prevMarket of previousHourMarkets) {
                         // Record profit from point of new market opening
                         await this.recordProfitAtMarketSwitch(prevMarket.market, newMarket);
-                        
+
                         // Remove from tracking
                         this.markets.delete(prevMarket.key);
-                        
+
                         // Trigger position closing callback if set
                         if (this.onMarketCloseCallback) {
                             try {
@@ -1142,7 +1163,9 @@ export class MarketTracker {
                             }
                         }
                     }
-                    return; // Done closing previous hour markets
+                    return; // Done closing previous hour markets that have ended
+                } else {
+                    logger.debug(`[MARKET-TRACKER] closeOldMarketsInCategory() - no previous hour markets have ended yet for category ${newCategory}`);
                 }
             }
             
@@ -1170,16 +1193,24 @@ export class MarketTracker {
             return;
         }
 
-        // For non-hourly markets (15-min): Always close the oldest one in same category
+        // For non-hourly markets (15-min): Only close the oldest one if it has actually ENDED
+        // Don't close markets just because a new one started - wait until old market has fully ended
         marketsInCategory.sort((a, b) => a.market.lastUpdate - b.market.lastUpdate);
         const oldestMarket = marketsInCategory[0];
-        
+
+        // CRITICAL: Only remove if market has actually ended (endDate < now)
+        const hasEnded = oldestMarket.market.endDate && oldestMarket.market.endDate <= now;
+        if (!hasEnded) {
+            logger.debug(`[MARKET-TRACKER] closeOldMarketsInCategory() - keeping oldest market ${oldestMarket.key} in category ${newCategory} (hasn't ended yet, endDate=${oldestMarket.market.endDate ? new Date(oldestMarket.market.endDate).toISOString() : 'N/A'}, now=${new Date(now).toISOString()})`);
+            return; // Don't close - market hasn't ended yet
+        }
+
         // Record profit from point of new market opening
         await this.recordProfitAtMarketSwitch(oldestMarket.market, newMarket);
-        
+
         // Remove from tracking
         this.markets.delete(oldestMarket.key);
-        
+
         // Trigger position closing callback if set
         if (this.onMarketCloseCallback) {
             try {
@@ -1582,23 +1613,28 @@ export class MarketTracker {
                 }
             }
 
-            // Remove previous time window markets when a new one starts
+            // Remove previous time window markets when a new one starts (only for same category)
             // Note: This skips 1-hour markets which are handled by closeOldMarketsInCategory
-            logger.debug(`[MARKET-TRACKER] Removing previous time window markets for new market ${marketKey}`);
-            const removePrevStartTime = Date.now();
-            const marketsBeforeRemove = this.markets.size;
-            this.removePreviousTimeWindow(market);
-            const marketsAfterRemove = this.markets.size;
-            logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() completed in ${Date.now() - removePrevStartTime}ms, markets: ${marketsBeforeRemove} -> ${marketsAfterRemove}`);
+            const is15MinCategory = category && (category.includes('UpDown-15'));
+            const is1HourCategory = category && (category.includes('UpDown-1h'));
             
-            // Record PnL for ALL existing markets at the time of new market opening
-            // This captures the PnL snapshot of all markets when a new one opens
-            logger.debug(`[MARKET-TRACKER] Recording PnL for all existing markets at new market opening`);
-            await this.recordAllMarketsPnLAtNewMarketOpening(market);
+            if (is15MinCategory) {
+                // Only process 15-min market switching - don't affect 1-hour markets
+                logger.debug(`[MARKET-TRACKER] Removing previous 15-min time window markets for new market ${marketKey}`);
+                const removePrevStartTime = Date.now();
+                const marketsBeforeRemove = this.markets.size;
+                this.removePreviousTimeWindow(market);
+                const marketsAfterRemove = this.markets.size;
+                logger.debug(`[MARKET-TRACKER] removePreviousTimeWindow() completed in ${Date.now() - removePrevStartTime}ms, markets: ${marketsBeforeRemove} -> ${marketsAfterRemove}`);
+            } else if (is1HourCategory) {
+                logger.debug(`[MARKET-TRACKER] New 1-hour market created: ${marketKey} - will handle via closeOldMarketsInCategory`);
+            }
             
-            // Close old markets in the same category
+            // CRITICAL: Only close/record PnL for markets in the SAME category
+            // Do NOT reset 1-hour markets when 15-min markets switch, and vice versa
+            // Each market type should only reset when its own time is up
             if (category) {
-                logger.debug(`[MARKET-TRACKER] Closing old markets in category: ${category}`);
+                logger.debug(`[MARKET-TRACKER] Processing market closure for category: ${category} (only affects markets in same category)`);
                 const closeOldStartTime = Date.now();
                 await this.closeOldMarketsInCategory(market, category);
                 logger.debug(`[MARKET-TRACKER] closeOldMarketsInCategory() completed in ${Date.now() - closeOldStartTime}ms`);

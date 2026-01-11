@@ -521,6 +521,44 @@ export class PaperTrader {
 
     logger.debug(`Executing paper order: ${signal.side} ${signal.size.toFixed(2)} @ $${signal.price.toFixed(4)} for ${signal.tokenId}`);
 
+    // CRITICAL: Validate market has started (not a future event)
+    // Markets must match live ET time - do not trade on future events
+    try {
+      const priceStreamLogger = (await import("./priceStreamLogger")).default;
+      const currentMarkets = priceStreamLogger.getCurrentMarkets();
+      
+      // Find the market for this token
+      let marketInfo = null;
+      for (const market of currentMarkets.values()) {
+        if (market.tokens.some(t => t.token_id === signal.tokenId)) {
+          marketInfo = market;
+          break;
+        }
+      }
+
+      if (marketInfo) {
+        // Check if market has started (start_time_iso <= now)
+        const startTime = new Date(marketInfo.start_time_iso).getTime();
+        const now = Date.now();
+        const timeUntilStart = startTime - now;
+
+        if (timeUntilStart > 0) {
+          // Market hasn't started yet (future event) - reject trade
+          execution.status = "failed";
+          execution.error = `Market has not started yet. Starts in ${Math.round(timeUntilStart / 1000)}s (${new Date(startTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET)`;
+          logger.warn(`[PAPER] Trade rejected - future market: ${marketInfo.question} (${marketInfo.slug}) - starts at ${new Date(startTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
+          return execution;
+        }
+
+        logger.debug(`[PAPER] Market validation passed - market has started: ${marketInfo.question} (start: ${new Date(startTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET)`);
+      } else {
+        logger.warn(`[PAPER] Could not find market info for token ${signal.tokenId} - allowing trade (market may not be in current markets list)`);
+      }
+    } catch (error) {
+      logger.error(`[PAPER] Error validating market start time:`, error);
+      // Allow trade to proceed if validation fails (fail open for safety)
+    }
+
     try {
       // Get current market price for realistic execution
       const currentPrice = await this.marketData.getPrice(signal.tokenId, signal.side);
