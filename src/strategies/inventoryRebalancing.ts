@@ -70,26 +70,34 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
   }
 
   async analyze(): Promise<StrategyResult> {
-    const signals: TradeSignal[] = [];
-
-    // Analyze each market independently
+    // Collect all market states to analyze in parallel
+    const marketStatesToAnalyze: MarketState[] = [];
     for (const marketType of InventoryBalancedRebalancingStrategy.MARKET_TYPES) {
       const marketState = this.marketStates.get(marketType);
-
-      if (!marketState) {
-        continue; // Market not yet discovered
-      }
-
-      // Analyze this specific market - now returns array of signals (UP and DOWN)
-      const marketSignals = await this.analyzeMarket(marketState);
-
-      if (marketSignals && marketSignals.length > 0) {
-        signals.push(...marketSignals);
+      if (marketState) {
+        marketStatesToAnalyze.push(marketState);
       }
     }
 
+    // Analyze all markets in PARALLEL (they're independent - each has its own state)
+    // Use Promise.all so all markets are analyzed simultaneously
+    const analysisPromises = marketStatesToAnalyze.map(state =>
+      this.analyzeMarket(state).catch(error => {
+        // Log error but return empty array so other markets can still be analyzed
+        this.log(`[${this.getShortName(state.marketType)}] Error analyzing market: ${error}`);
+        return [] as TradeSignal[];
+      })
+    );
+
+    // Wait for all analyses to complete
+    const marketSignalsArrays = await Promise.all(analysisPromises);
+
+    // Flatten all signals from all markets into single array
+    const signals = marketSignalsArrays.flat();
+
     return { signals };
   }
+
 
   /**
    * Analyze a single market and return trade signals for BOTH sides

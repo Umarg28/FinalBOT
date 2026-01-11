@@ -642,6 +642,16 @@ class MarketDiscovery {
     return assetIds;
   }
 
+  getNextAssetIds(): string[] {
+    const assetIds: string[] = [];
+    Array.from(this.nextMarkets.values()).forEach(market => {
+      for (const token of market.tokens) {
+        assetIds.push(token.token_id);
+      }
+    });
+    return assetIds;
+  }
+
   getMarketByAssetId(assetId: string): MarketInfo | null {
     const markets = Array.from(this.currentMarkets.values());
     for (const market of markets) {
@@ -1043,12 +1053,29 @@ class PriceStreamLogger {
       return;
     }
 
+    // Get next asset IDs for background streaming (10s before market end)
+    const nextAssetIds = this.marketDiscovery.getNextAssetIds();
+
     if (this.arraysEqual(assetIds, this.currentAssetIds)) {
+      // If current asset IDs haven't changed, but we have next markets, add them to subscription
+      if (nextAssetIds.length > 0) {
+        this.addAssetStates(nextAssetIds);
+        // Reconnect to update subscription with next markets included
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.close(1000, 'Add next markets');
+          this.connect();
+        }
+      }
       return;
     }
 
     this.currentAssetIds = assetIds;
     this.initializeAssetStates(assetIds);
+
+    // Add next asset IDs for background streaming if available
+    if (nextAssetIds.length > 0) {
+      this.addAssetStates(nextAssetIds);
+    }
 
     // Schedule a precise refresh at the earliest market end time so that
     // new BTC/ETH 15m and 1h windows are picked up with <1s delay.
@@ -1088,16 +1115,16 @@ class PriceStreamLogger {
     //    currentMarkets cleanly switch from old -> new markets.
     //
     // We achieve this by scheduling:
-    // - A pre-fetch ~5 seconds before earliest end (when there is enough time),
+    // - A pre-fetch ~10 seconds before earliest end (when there is enough time),
     // - Then, after that pre-fetch, discoverAndConnect() runs again and this
     //   method is called a second time, which will schedule a post-end refresh.
-    const PRE_FETCH_OFFSET_MS = 5000;
+    const PRE_FETCH_OFFSET_MS = 10000;
     const timeToEnd = nextSwitchTime - now;
     let triggerTime = nextSwitchTime;
     let mode: 'prefetch' | 'switch' = 'switch';
 
     if (timeToEnd > PRE_FETCH_OFFSET_MS + 1000) {
-      // Plenty of time: schedule a pre-fetch 5s before end
+      // Plenty of time: schedule a pre-fetch 10s before end
       triggerTime = nextSwitchTime - PRE_FETCH_OFFSET_MS;
       mode = 'prefetch';
     } else if (timeToEnd > 0) {
@@ -1118,7 +1145,7 @@ class PriceStreamLogger {
       // Allow immediate discovery at the scheduled switch moment
       this.lastDiscoveryTime = 0;
       if (mode === 'prefetch') {
-        log('info', 'Scheduled pre-fetch reached (≈5s before window end) - refreshing markets');
+        log('info', 'Scheduled pre-fetch reached (≈10s before window end) - refreshing markets');
       } else {
         log('info', 'Scheduled market switch time reached - refreshing markets immediately');
       }
@@ -1141,6 +1168,21 @@ class PriceStreamLogger {
         lastTradePrice: null,
         marketConditionId: null,
       });
+    }
+  }
+
+  private addAssetStates(assetIds: string[]): void {
+    // Add asset states without clearing existing ones (for next markets background streaming)
+    for (const assetId of assetIds) {
+      if (!this.assetStates.has(assetId)) {
+        this.assetStates.set(assetId, {
+          lastPrice: null,
+          bestBid: null,
+          bestAsk: null,
+          lastTradePrice: null,
+          marketConditionId: null,
+        });
+      }
     }
   }
 
@@ -1244,12 +1286,18 @@ class PriceStreamLogger {
   private subscribe(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
+    // Get next asset IDs for background streaming (10s before market end)
+    const nextAssetIds = this.marketDiscovery.getNextAssetIds();
+    
+    // Combine current and next asset IDs for subscription
+    const allAssetIds = [...new Set([...this.currentAssetIds, ...nextAssetIds])];
+
     const subscribeMsg = {
-      assets_ids: this.currentAssetIds,
+      assets_ids: allAssetIds,
       type: 'market',
     };
 
-    log('info', `Subscribing to ${this.currentAssetIds.length} assets`);
+    log('info', `Subscribing to ${allAssetIds.length} assets (${this.currentAssetIds.length} current + ${nextAssetIds.length} next)`);
     this.ws.send(JSON.stringify(subscribeMsg));
   }
 
