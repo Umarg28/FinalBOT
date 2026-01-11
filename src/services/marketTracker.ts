@@ -3217,6 +3217,17 @@ export class MarketTracker {
                 return null;
             }
 
+            // DEBUG: Log which slugs we're probing for 1-hour and 15-minute discovery
+            if (is1Hour) {
+                console.debug(
+                    `[MARKET-TRACKER DEBUG] Probing 1h slug=${slug} -> marketKey=${marketKey}`
+                );
+            } else if (is15Min && slug.includes('updown-15m')) {
+                console.debug(
+                    `[MARKET-TRACKER DEBUG] Probing 15m slug=${slug} -> marketKey=${marketKey}`
+                );
+            }
+
             // Check if we already have this exact slug in markets
             const existingMarket = this.markets.get(marketKey);
             if (existingMarket && existingMarket.marketSlug === slug) {
@@ -3258,8 +3269,14 @@ export class MarketTracker {
                 const data = await fetchData(url).catch(() => null);
 
                 if (data && Array.isArray(data) && data.length > 0) {
+                    console.debug(
+                        `[MARKET-TRACKER DEBUG] Gamma returned ${data.length} event(s) for slug=${slug}`
+                    );
                     return { slug, data: data[0], marketKey, is15Min, is1Hour, isBTC };
                 }
+                console.debug(
+                    `[MARKET-TRACKER DEBUG] Gamma returned NO events for slug=${slug}`
+                );
             } catch {
                 // Silently ignore
             }

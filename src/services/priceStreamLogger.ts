@@ -340,17 +340,53 @@ class MarketDiscovery {
 
       for (const event of events) {
         for (const market of event.markets) {
-          // Determine market type from market slug or event slug
+          // Determine market type from market slug, event slug, or title/question pattern
           const marketSlug = (market.slug || event.slug || '').toLowerCase();
           const eventSlug = (event.slug || '').toLowerCase();
+          const containsUpOrDown = marketSlug.includes('up-or-down') || eventSlug.includes('up-or-down');
+          const title = market.question || event.title || '';
+          const titleLower = title.toLowerCase();
 
-          // Match against configured market prefixes (btc-updown-15m, eth-updown-15m, bitcoin-up-or-down, ethereum-up-or-down)
-          const marketType = CONFIG.MARKET_SLUG_PREFIXES.find(prefix =>
-            marketSlug.startsWith(prefix.toLowerCase()) ||
-            eventSlug.startsWith(prefix.toLowerCase())
-          );
+          // Try slug-based classification first (btc-updown-15m, eth-updown-15m, bitcoin-up-or-down, ethereum-up-or-down)
+          let marketType =
+            CONFIG.MARKET_SLUG_PREFIXES.find(prefix =>
+              marketSlug.startsWith(prefix.toLowerCase()) ||
+              eventSlug.startsWith(prefix.toLowerCase())
+            ) || null;
 
-          if (!marketType) continue;
+          // Fallback: classify 1-hour Up/Down markets from title/question pattern
+          // Example: "Bitcoin Up or Down - January 10, 3PM ET"
+          if (!marketType) {
+            const hasCrypto =
+              titleLower.includes('bitcoin') ||
+              titleLower.includes('btc') ||
+              titleLower.includes('ethereum') ||
+              titleLower.includes('eth');
+            const hasUpDownWords = /up or down/i.test(title) || /up\s*\/\s*down/i.test(titleLower);
+            const hasTimeRange =
+              /\d{1,2}:\d{2}\s*(?:am|pm)\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)/i.test(title);
+            const hasSingleTime =
+              /\b\d{1,2}\s*(?:am|pm)\s*ET\b/i.test(title) ||
+              /\b\d{1,2}(?:am|pm)\s*ET\b/i.test(title);
+
+            if (hasCrypto && hasUpDownWords && hasSingleTime && !hasTimeRange) {
+              const isBTC = titleLower.includes('bitcoin') || titleLower.includes('btc');
+              marketType = isBTC ? 'bitcoin-up-or-down' : 'ethereum-up-or-down';
+            }
+          }
+
+          if (!marketType) {
+            // DEBUG: If this looks like an Up/Down hourly market but didn't match prefixes,
+            // log it so we can see the actual slug/title format Polymarket is using.
+            if (containsUpOrDown || /up or down/i.test(title)) {
+              log(
+                'debug',
+                `[DISCOVER-DEBUG] up-or-down event not matched to prefixes ` +
+                  `(url=${url}, marketSlug=${market.slug || ''}, eventSlug=${event.slug || ''}, title="${title}")`
+              );
+            }
+            continue;
+          }
 
           let tokenIds: string[] = [];
           let outcomeNames: string[] = [];
@@ -402,8 +438,26 @@ class MarketDiscovery {
               active: market.active && event.active,
               market_type: marketType,
             });
+
+            // DEBUG: Log discovery of 1-hour markets with full context so we can verify timing
+            if (marketType.includes('up-or-down')) {
+              log(
+                'debug',
+                `[DISCOVER-1H] type=${marketType} slug=${market.slug || event.slug || ''} ` +
+                  `question="${market.question || event.title || ''}" start=${startTime} end=${endDateIso}`
+              );
+            }
           }
         }
+      }
+
+      if (markets.length > 0) {
+        const sample = markets[0];
+        const types = Array.from(new Set(markets.map(m => m.market_type))).join(',');
+        log(
+          'debug',
+          `[DISCOVER] url=${url} -> ${markets.length} markets, types=[${types}], sampleSlug=${sample.slug}`
+        );
       }
 
       return markets;
@@ -599,9 +653,19 @@ class MarketDiscovery {
       const endTime = new Date(market.end_date_iso).getTime();
       const timeLeft = endTime - now;
       
-      // For 5-minute markets, use shorter buffer; for 15-minute markets, use default buffer
+      // For 5-minute markets, use shorter buffer; for 15-minute markets, use default buffer;
+      // for 1-hour markets, start switching earlier (5 minutes before end)
       const is5MinMarket = marketType.includes('5m');
-      const bufferMs = is5MinMarket ? 30 * 1000 : CONFIG.MARKET_SWITCH_BUFFER_MS; // 30s for 5m, 1min for 15m
+      const is1HourMarket =
+        marketType.includes('up-or-down') &&
+        !marketType.includes('5m') &&
+        !marketType.includes('15m');
+
+      const bufferMs = is5MinMarket
+        ? 30 * 1000 // 30s for 5m
+        : is1HourMarket
+        ? 5 * 60 * 1000 // 5 minutes for 1h
+        : CONFIG.MARKET_SWITCH_BUFFER_MS; // default (1 minute) for 15m
       
       if (timeLeft < bufferMs || timeLeft < 0) {
         needsSwitch.push(marketType);
@@ -994,7 +1058,7 @@ class PriceStreamLogger {
     // Track last refresh time to force periodic refresh
     let lastForceRefresh = Date.now();
     const FORCE_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // Force refresh every 5 minutes
-    const FAST_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds when markets need switching
+    const FAST_CHECK_INTERVAL_MS = 1000; // Check every 1 second when markets need switching for seamless window handoff
     let currentCheckInterval = CONFIG.MARKET_CHECK_INTERVAL_MS;
 
     const checkMarkets = async () => {
