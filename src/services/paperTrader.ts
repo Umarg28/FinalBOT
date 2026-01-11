@@ -1077,11 +1077,11 @@ export class PaperTrader {
         groupedByHour.get(market.hourWindow)!.push(market);
       }
 
-      // Generate formatted report with colors (ANSI codes for terminal viewing)
+      // Generate formatted report (simple, clean text)
       let report = "";
-      report += chalk.cyan("=".repeat(100)) + "\n";
-      report += chalk.cyan.bold("                    PAPER TRADING PNL REPORT\n");
-      report += chalk.cyan("=".repeat(100)) + "\n\n";
+      report += "=".repeat(100) + "\n";
+      report += "                    PAPER TRADING PNL REPORT\n";
+      report += "=".repeat(100) + "\n\n";
 
       // Sort hour windows chronologically
       const sortedWindows = Array.from(groupedByHour.keys()).sort((a, b) => {
@@ -1113,9 +1113,9 @@ export class PaperTrader {
           return 0;
         });
 
-        report += "\n" + chalk.yellow("─".repeat(100)) + "\n";
-        report += chalk.yellow.bold(`  HOUR WINDOW: ${hourWindow}`) + "\n";
-        report += chalk.yellow("─".repeat(100)) + "\n\n";
+        report += "\n" + "=".repeat(100) + "\n";
+        report += `  HOUR WINDOW: ${hourWindow}` + "\n";
+        report += "=".repeat(100) + "\n\n";
 
         let windowPnL = 0;
         let windowInvested = 0;
@@ -1123,54 +1123,50 @@ export class PaperTrader {
         for (const market of marketsInWindow) {
           const marketType = market.is15Min ? "15-Min" : market.is1Hour ? "1-Hour" : "Other";
           const pnlSign = market.pnl >= 0 ? "+" : "";
-          const pnlColor = market.pnl >= 0 ? chalk.green : chalk.red;
-          const pnlPercentColor = market.pnlPercent >= 0 ? chalk.green : chalk.red;
 
-          // Market header with full name
-          report += chalk.cyan(`  ${"═".repeat(96)}`) + "\n";
-          report += chalk.cyan.bold(`  ${marketType} Market`) + "\n";
-          report += chalk.cyan(`  ${"─".repeat(96)}`) + "\n";
-          report += chalk.white.bold(`  Market Name: ${market.name}`) + "\n";
-          report += chalk.cyan(`  ${"─".repeat(96)}`) + "\n";
+          // Market header
+          report += "\n" + "-".repeat(100) + "\n";
+          report += `  ${marketType} Market: ${market.name}` + "\n";
+          report += "-".repeat(100) + "\n\n";
           
-          // Outcome and settled PnL (prominent with colors)
-          const outcomeColor = market.outcome === "UP Won" ? chalk.green.bold : 
-                              market.outcome === "DOWN Won" ? chalk.red.bold : 
-                              chalk.yellow;
-          report += `  Outcome: ${outcomeColor(market.outcome)}` + "\n";
-          report += `  Settled PnL: ${pnlColor(`${pnlSign}$${market.pnl.toFixed(2)}`)} (${pnlPercentColor(`${pnlSign}${market.pnlPercent.toFixed(2)}%`)})` + "\n";
-          report += chalk.cyan(`  ${"─".repeat(96)}`) + "\n";
+          // Outcome and PnL
+          report += "  OUTCOME: " + market.outcome + "\n";
+          const pnlStr = `${pnlSign}$${Math.abs(market.pnl).toFixed(2)}`;
+          const pnlPercentStr = `${pnlSign}${Math.abs(market.pnlPercent).toFixed(2)}%`;
+          report += "  PnL: " + `${pnlStr} (${pnlPercentStr})` + "\n\n";
 
-          // Shares and Payout calculation
-          if (market.sharesUp > 0 || market.sharesDown > 0) {
-            report += chalk.gray(`  Shares - UP: `) + chalk.white(market.sharesUp.toFixed(2)) + chalk.gray(`  |  DOWN: `) + chalk.white(market.sharesDown.toFixed(2)) + "\n";
-            // Show payout based on outcome
-            if (market.outcome === "UP Won") {
-              const payout = market.sharesUp * 1.0;
-              const upPayoutStr = `${market.sharesUp.toFixed(2)} UP × $1.00 = $${payout.toFixed(2)}`;
-              const downPayoutStr = `${market.sharesDown.toFixed(2)} DOWN × $0.00 = $0.00`;
-              report += chalk.gray(`  Payout: `) + chalk.green(upPayoutStr) + chalk.gray(`  |  `) + chalk.red(downPayoutStr) + "\n";
-            } else if (market.outcome === "DOWN Won") {
-              const payout = market.sharesDown * 1.0;
-              const upPayoutStr = `${market.sharesUp.toFixed(2)} UP × $0.00 = $0.00`;
-              const downPayoutStr = `${market.sharesDown.toFixed(2)} DOWN × $1.00 = $${payout.toFixed(2)}`;
-              report += chalk.gray(`  Payout: `) + chalk.red(upPayoutStr) + chalk.gray(`  |  `) + chalk.green(downPayoutStr) + "\n";
-            }
-          }
+          // Shares
+          report += "  SHARES:" + "\n";
+          report += "    UP:   " + market.sharesUp.toFixed(2) + "\n";
+          report += "    DOWN: " + market.sharesDown.toFixed(2) + "\n\n";
 
-          // Closing Prices (mid-prices at time of capture)
-          if (market.avgPriceUp > 0 || market.avgPriceDown > 0) {
-            report += chalk.gray(`  Closing Price - UP: `) + chalk.white(`$${market.avgPriceUp.toFixed(4)}`) + chalk.gray(`  |  DOWN: `) + chalk.white(`$${market.avgPriceDown.toFixed(4)}`) + "\n";
-          }
+          // Prices
+          report += "  CLOSING PRICES:" + "\n";
+          report += "    UP:   $" + market.avgPriceUp.toFixed(4) + "\n";
+          report += "    DOWN: $" + market.avgPriceDown.toFixed(4) + "\n\n";
 
           // Average Costs
-          if (market.avgCostUp > 0 || market.avgCostDown > 0) {
-            report += chalk.gray(`  Avg Cost      - UP: `) + chalk.white(`$${market.avgCostUp.toFixed(4)}`) + chalk.gray(`  |  DOWN: `) + chalk.white(`$${market.avgCostDown.toFixed(4)}`) + "\n";
+          report += "  AVERAGE COST:" + "\n";
+          report += "    UP:   $" + market.avgCostUp.toFixed(4) + "\n";
+          report += "    DOWN: $" + market.avgCostDown.toFixed(4) + "\n\n";
+
+          // Payout
+          if (market.sharesUp > 0 || market.sharesDown > 0) {
+            report += "  PAYOUT:" + "\n";
+            if (market.outcome === "UP Won") {
+              const payout = market.sharesUp * 1.0;
+              report += "    UP:   $" + payout.toFixed(2) + " (" + market.sharesUp.toFixed(2) + " shares × $1.00)" + "\n";
+              report += "    DOWN: $0.00 (" + market.sharesDown.toFixed(2) + " shares × $0.00)" + "\n";
+            } else if (market.outcome === "DOWN Won") {
+              const payout = market.sharesDown * 1.0;
+              report += "    UP:   $0.00 (" + market.sharesUp.toFixed(2) + " shares × $0.00)" + "\n";
+              report += "    DOWN: $" + payout.toFixed(2) + " (" + market.sharesDown.toFixed(2) + " shares × $1.00)" + "\n";
+            }
+            report += "\n";
           }
 
           // Total Invested
-          report += chalk.gray(`  Total Invested: `) + chalk.white(`$${market.totalInvested.toFixed(2)}`) + "\n";
-          report += chalk.cyan(`  ${"═".repeat(96)}`) + "\n\n";
+          report += "  TOTAL INVESTED: $" + market.totalInvested.toFixed(2) + "\n";
 
           windowPnL += market.pnl;
           windowInvested += market.totalInvested;
@@ -1179,36 +1175,33 @@ export class PaperTrader {
         // Window summary
         const windowPnLSign = windowPnL >= 0 ? "+" : "";
         const windowPnLPercent = windowInvested > 0 ? (windowPnL / windowInvested) * 100 : 0;
-        const windowPnLColor = windowPnL >= 0 ? chalk.green.bold : chalk.red.bold;
-        const windowPnLPercentColor = windowPnLPercent >= 0 ? chalk.green : chalk.red;
-        report += chalk.yellow(`  ${"─".repeat(88)}`) + "\n";
-        report += chalk.yellow.bold(`  Window Summary:  `) + 
-                  `PnL: ${windowPnLColor(`${windowPnLSign}$${windowPnL.toFixed(2)}`)} ` +
-                  `(${windowPnLPercentColor(`${windowPnLSign}${windowPnLPercent.toFixed(2)}%`)})  ` +
-                  chalk.gray(`|  Total Invested: `) + chalk.white(`$${windowInvested.toFixed(2)}`) + "\n";
-        report += chalk.yellow(`  ${"─".repeat(88)}`) + "\n\n";
+        report += "\n" + "=".repeat(100) + "\n";
+        const windowPnLStr = `${windowPnLSign}$${Math.abs(windowPnL).toFixed(2)}`;
+        const windowPnLPercentStr = `${windowPnLSign}${Math.abs(windowPnLPercent).toFixed(2)}%`;
+        report += "  WINDOW SUMMARY:" + "\n";
+        report += "  PnL: " + `${windowPnLStr} (${windowPnLPercentStr})` + "\n";
+        report += "  Total Invested: $" + windowInvested.toFixed(2) + "\n";
+        report += "=".repeat(100) + "\n\n";
 
         totalPnL += windowPnL;
         totalInvested += windowInvested;
       }
 
       // Overall summary
-      report += "\n" + chalk.cyan("=".repeat(100)) + "\n";
-      report += chalk.cyan.bold("                              OVERALL SUMMARY") + "\n";
-      report += chalk.cyan("=".repeat(100)) + "\n\n";
+      report += "\n" + "=".repeat(100) + "\n";
+      report += "                              OVERALL SUMMARY" + "\n";
+      report += "=".repeat(100) + "\n\n";
       const totalPnLSign = totalPnL >= 0 ? "+" : "";
       const totalPnLPercent = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
-      const totalPnLColor = totalPnL >= 0 ? chalk.green.bold : chalk.red.bold;
-      const totalPnLPercentColor = totalPnLPercent >= 0 ? chalk.green.bold : chalk.red.bold;
-      report += chalk.white.bold(`  Total PnL: `) + 
-                `${totalPnLColor(`${totalPnLSign}$${totalPnL.toFixed(2)}`)} ` +
-                `(${totalPnLPercentColor(`${totalPnLSign}${totalPnLPercent.toFixed(2)}%`)})` + "\n";
-      report += chalk.white(`  Total Invested: ${chalk.cyan(`$${totalInvested.toFixed(2)}`)}`) + "\n";
-      report += chalk.white(`  Markets Traded: ${chalk.cyan(markets.length.toString())}`) + "\n";
-      report += chalk.white(`  Hour Windows: ${chalk.cyan(sortedWindows.length.toString())}`) + "\n";
-      report += "\n" + chalk.cyan("=".repeat(100)) + "\n";
-      report += chalk.gray(`  Generated: ${chalk.white(new Date().toLocaleString())}`) + "\n";
-      report += chalk.cyan("=".repeat(100)) + "\n";
+      const totalPnLStr = `${totalPnLSign}$${Math.abs(totalPnL).toFixed(2)}`;
+      const totalPnLPercentStr = `${totalPnLSign}${Math.abs(totalPnLPercent).toFixed(2)}%`;
+      report += "  Total PnL:     " + `${totalPnLStr} (${totalPnLPercentStr})` + "\n";
+      report += "  Total Invested: $" + totalInvested.toFixed(2) + "\n";
+      report += "  Markets Traded: " + markets.length.toString() + "\n";
+      report += "  Hour Windows:   " + sortedWindows.length.toString() + "\n";
+      report += "\n" + "=".repeat(100) + "\n";
+      report += "  Generated: " + new Date().toLocaleString() + "\n";
+      report += "=".repeat(100) + "\n";
 
       // Write report
       fs.writeFileSync(reportPath, report, "utf8");
