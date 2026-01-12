@@ -2585,7 +2585,14 @@ export class MarketTracker {
         // Markets in nextMarkets are "upcoming", all others are "current"
         const currentMarketsFromStream = priceStreamLogger.getCurrentMarkets();
         const nextMarketsFromStream = priceStreamLogger.getNextMarkets();
-        
+
+        // Log stream status for debugging intermittent issues
+        if (currentMarketsFromStream.size < 4 || nextMarketsFromStream.size < 4) {
+            const currentTypes = Array.from(currentMarketsFromStream.keys()).join(', ');
+            const nextTypes = Array.from(nextMarketsFromStream.keys()).join(', ');
+            logger.warn(`[MARKET-TRACKER] WebSocket stream incomplete: currentMarkets=${currentMarketsFromStream.size}/4 [${currentTypes}], nextMarkets=${nextMarketsFromStream.size}/4 [${nextTypes}]`);
+        }
+
         // Build a set of marketKeys that correspond to nextMarkets for direct matching,
         // and ensure corresponding dashboard markets exist as soon as the price stream
         // discovers them (so upcoming 1-hour markets appear without delay).
@@ -2622,33 +2629,35 @@ export class MarketTracker {
                 nextMarketKeys.add(marketKey);
                 logger.debug(`[MARKET-TRACKER] Built nextMarketKey: ${marketKey} from marketType=${marketType}, slug=${info.slug || 'N/A'}`);
 
-                // Ensure a MarketStats entry exists for this next market so that
-                // upcoming BTC/ETH 1-hour markets appear on the dashboard as soon
-                // as the WebSocket discovers them (even before proactive discovery runs).
-                if (!this.markets.has(marketKey)) {
-                    let assetUp = '';
-                    let assetDown = '';
-                    if (info.tokens && info.tokens.length >= 2) {
-                        const upToken =
-                            info.tokens.find((t: any) => t.outcome && t.outcome.toUpperCase().includes('UP')) ||
-                            info.tokens[0];
-                        const downToken =
-                            info.tokens.find((t: any) => t.outcome && t.outcome.toUpperCase().includes('DOWN')) ||
-                            info.tokens[1];
-                        assetUp = upToken.token_id;
-                        assetDown = downToken.token_id;
-                    }
-                    const endDateMs = info.end_date_iso ? new Date(info.end_date_iso).getTime() : undefined;
+                // Always sync upcoming market data to ensure correct name/slug/endDate
+                // This is critical because upcoming markets need to display their FUTURE
+                // market name, not the current market name
+                let assetUp = '';
+                let assetDown = '';
+                if (info.tokens && info.tokens.length >= 2) {
+                    const upToken =
+                        info.tokens.find((t: any) => t.outcome && t.outcome.toUpperCase().includes('UP')) ||
+                        info.tokens[0];
+                    const downToken =
+                        info.tokens.find((t: any) => t.outcome && t.outcome.toUpperCase().includes('DOWN')) ||
+                        info.tokens[1];
+                    assetUp = upToken.token_id;
+                    assetDown = downToken.token_id;
+                }
+                const endDateMs = info.end_date_iso ? new Date(info.end_date_iso).getTime() : undefined;
+                const isNewMarket = !this.markets.has(marketKey);
 
-                    this.ensureMarketWithAssets(
-                        marketKey,
-                        info.question || info.slug || marketKey,
-                        info.slug || '',
-                        info.condition_id,
-                        assetUp,
-                        assetDown,
-                        endDateMs
-                    );
+                this.ensureMarketWithAssets(
+                    marketKey,
+                    info.question || info.slug || marketKey,
+                    info.slug || '',
+                    info.condition_id,
+                    assetUp,
+                    assetDown,
+                    endDateMs
+                );
+
+                if (isNewMarket) {
                     logger.info(`[MARKET-TRACKER] Created dashboard market ${marketKey} from nextMarkets (displayStats sync)`);
                 }
             }
@@ -2656,6 +2665,23 @@ export class MarketTracker {
         
         // Helper to check if a market is in currentMarkets (to exclude from upcoming)
         const isMarketCurrent = (market: MarketStats): boolean => {
+            // FALLBACK: If market has endDate and it's within the current window, consider it current
+            // This prevents markets from disappearing when WebSocket data is incomplete
+            if (market.endDate && market.endDate > now) {
+                const timeLeft = market.endDate - now;
+                const is15Min = market.marketKey.includes('-15');
+                const is1Hour = market.marketKey.includes('-1h-');
+
+                // For 15-min markets: current if <= 15 minutes left
+                if (is15Min && timeLeft <= 15 * 60 * 1000) {
+                    return true;
+                }
+                // For 1-hour markets: current if <= 60 minutes left
+                if (is1Hour && timeLeft <= 60 * 60 * 1000) {
+                    return true;
+                }
+            }
+
             // Check if market matches any currentMarket by conditionId, assetUp/assetDown, or slug pattern
             for (const currentMarket of currentMarketsFromStream.values()) {
                 // Match by conditionId (most reliable)
@@ -2884,7 +2910,31 @@ export class MarketTracker {
                 currentMarkets.push(market);
             }
         }
-        
+
+        // STABILITY FIX: Ensure we always have one current market per category (BTC-15m, ETH-15m, BTC-1h, ETH-1h)
+        // This prevents markets from disappearing when WebSocket data is temporarily unavailable
+        const currentCategories = ['BTC-UpDown-15', 'ETH-UpDown-15', 'BTC-UpDown-1h', 'ETH-UpDown-1h'];
+        for (const category of currentCategories) {
+            const hasCurrent = currentMarkets.some(m => m.marketKey.startsWith(category));
+            if (!hasCurrent) {
+                // Find a market in this category that should be current (endDate in future and soonest)
+                const categoryMarkets = activeMarkets
+                    .filter(m => m.marketKey.startsWith(category) && m.endDate && m.endDate > now)
+                    .sort((a, b) => (a.endDate || Infinity) - (b.endDate || Infinity));
+
+                if (categoryMarkets.length > 0) {
+                    const soonestMarket = categoryMarkets[0];
+                    // Move from upcoming to current if it's there
+                    const upcomingIdx = upcomingMarkets.findIndex(m => m.marketKey === soonestMarket.marketKey);
+                    if (upcomingIdx !== -1) {
+                        upcomingMarkets.splice(upcomingIdx, 1);
+                    }
+                    currentMarkets.push(soonestMarket);
+                    logger.info(`[MARKET-TRACKER] STABILITY FIX: Added ${soonestMarket.marketKey} to current (category ${category} had no current market)`);
+                }
+            }
+        }
+
         // CRITICAL: Ensure ALL markets from nextMarketKeys are in upcomingMarkets
         // This ensures upcoming markets ALWAYS show 24/7
         // Check all markets in activeMarkets that match nextMarketKeys
@@ -2957,22 +3007,44 @@ export class MarketTracker {
             }
         }
         
-        // Sort both lists by total invested (descending)
+        // Sort current markets by total invested (descending)
         currentMarkets.sort((a, b) => {
             const totalA = a.investedUp + a.investedDown;
             const totalB = b.investedUp + b.investedDown;
             return totalB - totalA;
         });
-        
+
+        // Sort upcoming markets by endDate (soonest first) to show the NEXT market for each type
+        // This ensures 8AM markets show before 9AM markets, etc.
         upcomingMarkets.sort((a, b) => {
-            const totalA = a.investedUp + a.investedDown;
-            const totalB = b.investedUp + b.investedDown;
-            return totalB - totalA;
+            const endA = a.endDate || Infinity;
+            const endB = b.endDate || Infinity;
+            return endA - endB;
         });
-        
+
+        // For upcoming markets, select one of each category (BTC-15m, ETH-15m, BTC-1h, ETH-1h)
+        // This ensures all 4 market types are represented in upcoming
+        const upcomingByCategory = new Map<string, MarketStats>();
+        for (const market of upcomingMarkets) {
+            let category = '';
+            if (market.marketKey.includes('BTC') && market.marketKey.includes('-15')) {
+                category = 'BTC-15m';
+            } else if (market.marketKey.includes('ETH') && market.marketKey.includes('-15')) {
+                category = 'ETH-15m';
+            } else if (market.marketKey.includes('BTC') && market.marketKey.includes('-1h')) {
+                category = 'BTC-1h';
+            } else if (market.marketKey.includes('ETH') && market.marketKey.includes('-1h')) {
+                category = 'ETH-1h';
+            }
+            // Only take the first (soonest) market for each category
+            if (category && !upcomingByCategory.has(category)) {
+                upcomingByCategory.set(category, market);
+            }
+        }
+
         // Limit to 4 markets each (current and upcoming)
         const sortedCurrentMarkets = currentMarkets.slice(0, 4);
-        const sortedUpcomingMarkets = upcomingMarkets.slice(0, 4);
+        const sortedUpcomingMarkets = Array.from(upcomingByCategory.values()).slice(0, 4);
 
         // Build entire output as string first to prevent partial prints
         const outputLines: string[] = [];
@@ -3174,16 +3246,26 @@ export class MarketTracker {
             const is15Min = market.marketKey.includes('-15');
 
             if (is15Min) {
-                // For 15-min markets: ALWAYS calculate from slug (most reliable)
+                // For 15-min markets: Calculate endDate from marketKey timestamp (most reliable)
+                // marketKey format: BTC-UpDown-15-1768221900 where 1768221900 is the START time in seconds
                 let calculatedEndDate: number | null = null;
-                
+
                 try {
-                    if (market.marketSlug) {
-                        // Try slug pattern matching
+                    // First try extracting timestamp from marketKey (most reliable for upcoming markets)
+                    const marketKeyTsMatch = market.marketKey.match(/UpDown-15-(\d+)$/);
+                    if (marketKeyTsMatch && marketKeyTsMatch[1]) {
+                        const startTime = parseInt(marketKeyTsMatch[1], 10) * 1000;
+                        if (!isNaN(startTime) && startTime > 0) {
+                            calculatedEndDate = startTime + (15 * 60 * 1000);
+                        }
+                    }
+
+                    // Fallback: try slug pattern matching
+                    if (!calculatedEndDate && market.marketSlug) {
                         const tsMatch1 = market.marketSlug.match(/updown-15m-(\d+)/i);
                         const tsMatch2 = !tsMatch1 ? market.marketSlug.match(/15m-(\d+)/i) : null;
                         const tsMatch = tsMatch1 || tsMatch2;
-                        
+
                         if (tsMatch && tsMatch[1]) {
                             const startTime = parseInt(tsMatch[1], 10) * 1000;
                             if (!isNaN(startTime) && startTime > 0) {
@@ -3194,33 +3276,20 @@ export class MarketTracker {
                 } catch (e) {
                     // Silently handle regex errors
                 }
-                
-                // If slug parsing failed, calculate from current 15-min window
+
+                // If parsing failed, calculate from current 15-min window (only for current markets)
                 if (!calculatedEndDate) {
                     const current15MinStart = Math.floor(now / (15 * 60 * 1000)) * (15 * 60 * 1000);
                     calculatedEndDate = current15MinStart + (15 * 60 * 1000);
                 }
-                
-                // Safety check: 15-min markets should never show more than 16 minutes
+
+                // Update market.endDate with calculated value
                 if (calculatedEndDate) {
                     market.endDate = calculatedEndDate;
-                    let timeLeftMs = calculatedEndDate - now;
+                    const timeLeftMs = calculatedEndDate - now;
 
-                    // If time is invalid, recalculate from current window
-                    if (timeLeftMs > 16 * 60 * 1000 || timeLeftMs < -60 * 1000) {
-                        const current15MinStart = Math.floor(now / (15 * 60 * 1000)) * (15 * 60 * 1000);
-                        const correctEndDate = current15MinStart + (15 * 60 * 1000);
-                        market.endDate = correctEndDate;
-                        calculatedEndDate = correctEndDate; // Update calculatedEndDate too
-                        timeLeftMs = correctEndDate - now;
-                    }
-
-                    if (timeLeftMs > 0 && timeLeftMs <= 15 * 60 * 1000) {
-                        const mins = Math.floor(timeLeftMs / 60000);
-                        const secs = Math.floor((timeLeftMs % 60000) / 1000);
-                        timeLeftStr = `⏱️ ${mins}m ${secs}s left`;
-                    } else if (timeLeftMs > 0) {
-                        // Should be rare (slightly over 15m), still show countdown
+                    // Show countdown for any positive time (including upcoming markets)
+                    if (timeLeftMs > 0) {
                         const mins = Math.floor(timeLeftMs / 60000);
                         const secs = Math.floor((timeLeftMs % 60000) / 1000);
                         timeLeftStr = `⏱️ ${mins}m ${secs}s left`;
@@ -3425,13 +3494,29 @@ export class MarketTracker {
             outputLines.push(''); // Empty line between markets
         };
 
+        // Create a single totals object to accumulate values across all renderMarket calls
+        // (JavaScript passes objects by reference, so mutations inside renderMarket will persist)
+        const totals = {
+            totalInvestedAll,
+            totalCostBasisAll,
+            totalValueAll,
+            totalPnlAll,
+            totalTradesAll,
+            totalInvested15m,
+            totalCostBasis15m,
+            totalValue15m,
+            totalPnl15m,
+            totalTrades15m,
+            totalInvested1h,
+            totalCostBasis1h,
+            totalValue1h,
+            totalPnl1h,
+            totalTrades1h
+        };
+
         // Render current markets
         for (const market of sortedCurrentMarkets) {
-            renderMarket(market, {
-                totalInvestedAll, totalCostBasisAll, totalValueAll, totalPnlAll, totalTradesAll,
-                totalInvested15m, totalCostBasis15m, totalValue15m, totalPnl15m, totalTrades15m,
-                totalInvested1h, totalCostBasis1h, totalValue1h, totalPnl1h, totalTrades1h
-            });
+            renderMarket(market, totals);
         }
 
         // Render UPCOMING MARKETS section (ALWAYS show if we have upcoming markets)
@@ -3441,14 +3526,10 @@ export class MarketTracker {
             outputLines.push(chalk.magenta.bold('  🔮 UPCOMING MARKETS'));
             outputLines.push(chalk.magenta('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
             outputLines.push(''); // Empty line
-            
-            // Render upcoming markets using the same logic (with live prices)
+
+            // Render upcoming markets using the same totals object
             for (const market of sortedUpcomingMarkets) {
-                renderMarket(market, {
-                    totalInvestedAll, totalCostBasisAll, totalValueAll, totalPnlAll, totalTradesAll,
-                    totalInvested15m, totalCostBasis15m, totalValue15m, totalPnl15m, totalTrades15m,
-                    totalInvested1h, totalCostBasis1h, totalValue1h, totalPnl1h, totalTrades1h
-                });
+                renderMarket(market, totals);
             }
             logger.debug(`[MARKET-TRACKER] Displayed ${sortedUpcomingMarkets.length} upcoming market(s) with live prices`);
         } else {
@@ -3460,30 +3541,30 @@ export class MarketTracker {
         outputLines.push(chalk.cyan.bold('  📊 PORTFOLIO SUMMARY'));
 
         // 15-minute markets summary
-        const pnl15mSign = totalPnl15m >= 0 ? '+' : '';
-        const pnl15mPercent = totalCostBasis15m > 0 ? ((totalPnl15m / totalCostBasis15m) * 100).toFixed(2) : '0.00';
-        const pnl15mColor = totalPnl15m >= 0 ? chalk.green : chalk.red;
+        const pnl15mSign = totals.totalPnl15m >= 0 ? '+' : '';
+        const pnl15mPercent = totals.totalCostBasis15m > 0 ? ((totals.totalPnl15m / totals.totalCostBasis15m) * 100).toFixed(2) : '0.00';
+        const pnl15mColor = totals.totalPnl15m >= 0 ? chalk.green : chalk.red;
         outputLines.push('');
         outputLines.push(chalk.white.bold('  ⏱️  15-Minute Markets (BTC + ETH)'));
-        outputLines.push(chalk.gray(`    Invested: $${totalInvested15m.toFixed(2)} | Value: $${totalValue15m.toFixed(2)} | PnL: `) + pnl15mColor(`${pnl15mSign}$${totalPnl15m.toFixed(2)} (${pnl15mSign}${pnl15mPercent}%)`) + chalk.gray(` | Trades: ${totalTrades15m}`));
+        outputLines.push(chalk.gray(`    Invested: $${totals.totalInvested15m.toFixed(2)} | Value: $${totals.totalValue15m.toFixed(2)} | PnL: `) + pnl15mColor(`${pnl15mSign}$${totals.totalPnl15m.toFixed(2)} (${pnl15mSign}${pnl15mPercent}%)`) + chalk.gray(` | Trades: ${totals.totalTrades15m}`));
 
         // 1-hour markets summary
-        const pnl1hSign = totalPnl1h >= 0 ? '+' : '';
-        const pnl1hPercent = totalCostBasis1h > 0 ? ((totalPnl1h / totalCostBasis1h) * 100).toFixed(2) : '0.00';
-        const pnl1hColor = totalPnl1h >= 0 ? chalk.green : chalk.red;
+        const pnl1hSign = totals.totalPnl1h >= 0 ? '+' : '';
+        const pnl1hPercent = totals.totalCostBasis1h > 0 ? ((totals.totalPnl1h / totals.totalCostBasis1h) * 100).toFixed(2) : '0.00';
+        const pnl1hColor = totals.totalPnl1h >= 0 ? chalk.green : chalk.red;
         outputLines.push('');
         outputLines.push(chalk.white.bold('  🕐 1-Hour Markets (BTC + ETH)'));
-        outputLines.push(chalk.gray(`    Invested: $${totalInvested1h.toFixed(2)} | Value: $${totalValue1h.toFixed(2)} | PnL: `) + pnl1hColor(`${pnl1hSign}$${totalPnl1h.toFixed(2)} (${pnl1hSign}${pnl1hPercent}%)`) + chalk.gray(` | Trades: ${totalTrades1h}`));
+        outputLines.push(chalk.gray(`    Invested: $${totals.totalInvested1h.toFixed(2)} | Value: $${totals.totalValue1h.toFixed(2)} | PnL: `) + pnl1hColor(`${pnl1hSign}$${totals.totalPnl1h.toFixed(2)} (${pnl1hSign}${pnl1hPercent}%)`) + chalk.gray(` | Trades: ${totals.totalTrades1h}`));
 
         // Total summary
-        const totalPnlSign = totalPnlAll >= 0 ? '+' : '';
-        const totalPnlPercent = totalCostBasisAll > 0 ? ((totalPnlAll / totalCostBasisAll) * 100).toFixed(2) : '0.00';
-        const totalPnlAllColor = totalPnlAll >= 0 ? chalk.green : chalk.red;
+        const totalPnlSign = totals.totalPnlAll >= 0 ? '+' : '';
+        const totalPnlPercent = totals.totalCostBasisAll > 0 ? ((totals.totalPnlAll / totals.totalCostBasisAll) * 100).toFixed(2) : '0.00';
+        const totalPnlAllColor = totals.totalPnlAll >= 0 ? chalk.green : chalk.red;
 
         outputLines.push('');
         outputLines.push(chalk.yellow.bold('  📈 TOTAL (All Markets)'));
-        outputLines.push(chalk.white(`    Invested: $${totalInvestedAll.toFixed(2)} | Value: $${totalValueAll.toFixed(2)}`));
-        outputLines.push(chalk.gray('    PnL: ') + totalPnlAllColor.bold(`${totalPnlSign}$${totalPnlAll.toFixed(2)} (${totalPnlSign}${totalPnlPercent}%)`) + chalk.gray(` | Total Trades: ${totalTradesAll}`));
+        outputLines.push(chalk.white(`    Invested: $${totals.totalInvestedAll.toFixed(2)} | Value: $${totals.totalValueAll.toFixed(2)}`));
+        outputLines.push(chalk.gray('    PnL: ') + totalPnlAllColor.bold(`${totalPnlSign}$${totals.totalPnlAll.toFixed(2)} (${totalPnlSign}${totalPnlPercent}%)`) + chalk.gray(` | Total Trades: ${totals.totalTradesAll}`));
 
         outputLines.push(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
 
