@@ -24,6 +24,19 @@ import marketTracker, { type MarketTrackerInstance } from "./services/marketTrac
 // Import config watcher for hot-reloading
 import { startConfigWatcher, stopConfigWatcher } from "./config/rebalanceConfig";
 
+// Import web dashboard app server (optional)
+let AppServer: typeof import("../app/server").AppServer | null = null;
+let dashboardDataCollector: typeof import("../app/server").dashboardDataCollector | null = null;
+if (ENV.ENABLE_WEB_DASHBOARD) {
+  try {
+    const appServer = require("../app/server");
+    AppServer = appServer.AppServer;
+    dashboardDataCollector = appServer.dashboardDataCollector;
+  } catch (e) {
+    console.warn("[APP] Web dashboard not available - app folder may be missing");
+  }
+}
+
 // Main bot class
 export class PolymarketBot {
   private marketData!: MarketDataService;
@@ -32,6 +45,7 @@ export class PolymarketBot {
   private strategyManager!: StrategyManager;
   private dashboard?: Dashboard;
   private walletPnLService?: WalletPnLService;
+  private appServer?: InstanceType<typeof import("../app/server").AppServer>;
   private isRunning: boolean = false;
   private isPaperMode: boolean;
   private isWatcherMode: boolean;
@@ -119,6 +133,13 @@ export class PolymarketBot {
     // Start config file watcher for hot-reloading (paper mode only)
     if (this.isPaperMode && !this.isWatcherMode) {
       startConfigWatcher();
+    }
+
+    // Start web dashboard server if enabled
+    if (ENV.ENABLE_WEB_DASHBOARD && AppServer && dashboardDataCollector) {
+      this.appServer = new AppServer(ENV.WEB_DASHBOARD_PORT);
+      dashboardDataCollector.setPaperTrader(this.paperTrader);
+      this.appServer.start();
     }
 
     if (this.isWatcherMode) {
@@ -555,6 +576,11 @@ export class PolymarketBot {
 
     // Stop config file watcher
     stopConfigWatcher();
+
+    // Stop web dashboard server
+    if (this.appServer) {
+      this.appServer.stop();
+    }
 
     // Stop dashboard
     if (this.dashboard) {

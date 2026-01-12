@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>BETABOT Dashboard</title>
+
+  <!-- PWA Meta Tags -->
+  <meta name="theme-color" content="#0d1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="BETABOT">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="description" content="Real-time trading dashboard for BETABOT">
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json">
+
+  <!-- Icons -->
+  <link rel="icon" type="image/svg+xml" href="/icons/icon-192.svg">
+  <link rel="apple-touch-icon" href="/icons/icon-192.svg">
+
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="dashboard">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <h1>BETABOT</h1>
+        <span class="mode" id="mode">PAPER MODE</span>
+      </div>
+      <div class="header-right">
+        <span class="connection" id="connection">
+          <span class="dot"></span>
+          <span class="status-text">Connecting...</span>
+        </span>
+      </div>
+    </header>
+
+    <!-- Portfolio Summary -->
+    <section class="portfolio-summary">
+      <div class="metric">
+        <span class="label">Balance</span>
+        <span class="value" id="balance">$10,000.00</span>
+      </div>
+      <div class="metric">
+        <span class="label">Invested</span>
+        <span class="value" id="invested">$0.00</span>
+      </div>
+      <div class="metric">
+        <span class="label">Value</span>
+        <span class="value" id="value">$0.00</span>
+      </div>
+      <div class="metric highlight">
+        <span class="label">PnL</span>
+        <span class="value pnl" id="total-pnl">$0.00</span>
+      </div>
+      <div class="metric">
+        <span class="label">PnL %</span>
+        <span class="value pnl" id="pnl-percent">0.00%</span>
+      </div>
+      <div class="metric">
+        <span class="label">Trades</span>
+        <span class="value" id="total-trades">0</span>
+      </div>
+    </section>
+
+    <!-- Market Type Summary -->
+    <section class="market-type-summary">
+      <div class="type-card">
+        <span class="type-label">15-Min Markets</span>
+        <span class="type-pnl" id="pnl-15m">$0.00 (0.00%)</span>
+        <span class="type-trades" id="trades-15m">0 trades</span>
+      </div>
+      <div class="type-card">
+        <span class="type-label">1-Hour Markets</span>
+        <span class="type-pnl" id="pnl-1h">$0.00 (0.00%)</span>
+        <span class="type-trades" id="trades-1h">0 trades</span>
+      </div>
+    </section>
+
+    <!-- Tab Navigation -->
+    <nav class="tabs">
+      <button class="tab active" data-tab="markets">Markets</button>
+      <button class="tab" data-tab="history">PnL History</button>
+    </nav>
+
+    <!-- Tab Content: Markets -->
+    <div class="tab-content active" id="tab-markets">
+      <!-- Current Markets -->
+      <section class="markets-section">
+        <h2>Current Markets</h2>
+        <div class="markets-grid" id="current-markets">
+          <div class="market-card empty">
+            <p>Waiting for market data...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Upcoming Markets -->
+      <section class="markets-section">
+        <h2>Upcoming Markets</h2>
+        <div class="markets-grid" id="upcoming-markets">
+          <div class="market-card empty">
+            <p>Waiting for market data...</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tab Content: PnL History -->
+    <div class="tab-content" id="tab-history">
+      <section class="history-section">
+        <div class="history-summary">
+          <div class="history-stat">
+            <span class="stat-label">Total Markets</span>
+            <span class="stat-value" id="history-count">0</span>
+          </div>
+          <div class="history-stat">
+            <span class="stat-label">Win Rate</span>
+            <span class="stat-value" id="history-winrate">0%</span>
+          </div>
+          <div class="history-stat">
+            <span class="stat-label">Total PnL</span>
+            <span class="stat-value" id="history-total-pnl">$0.00</span>
+          </div>
+        </div>
+        <div class="history-list" id="pnl-history">
+          <div class="history-empty">
+            <p>No completed markets yet</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span id="last-update">Last update: --</span>
+    </footer>
+  </div>
+
+  <script src="/js/formatters.js"></script>
+  <script src="/js/dashboard.js"></script>
+
+  <!-- Register Service Worker for PWA -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then((reg) => console.log('[PWA] Service worker registered'))
+          .catch((err) => console.log('[PWA] Service worker registration failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>

@@ -710,6 +710,28 @@ export class PaperTrader {
     return this.account.balance;
   }
 
+  getStartingBalance(): number {
+    return this.account.startingBalance;
+  }
+
+  getPnLHistory(): Array<{
+    marketName: string;
+    conditionId: string;
+    totalPnl: number;
+    pnlPercent: number;
+    priceUp: number;
+    priceDown: number;
+    sharesUp: number;
+    sharesDown: number;
+    timestamp: number;
+  }> {
+    if (!this.marketPnLData || this.marketPnLData.size === 0) {
+      return [];
+    }
+    return Array.from(this.marketPnLData.values())
+      .sort((a, b) => b.timestamp - a.timestamp); // Most recent first
+  }
+
   getPosition(tokenId: string): Position | undefined {
     return this.account.positions.get(tokenId);
   }

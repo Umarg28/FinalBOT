@@ -114,6 +114,10 @@ export const ENV = {
 
   // Enhanced services (poly-sdk)
   USE_ENHANCED_SERVICES: getEnvVarBoolean("USE_ENHANCED_SERVICES", true), // Enable poly-sdk enhanced services
+
+  // Web Dashboard settings
+  ENABLE_WEB_DASHBOARD: getEnvVarBoolean("ENABLE_WEB_DASHBOARD", false), // Enable web dashboard server
+  WEB_DASHBOARD_PORT: getEnvVarNumber("WEB_DASHBOARD_PORT", 3000), // Port for web dashboard
 };
 
 export default ENV;
