@@ -1151,10 +1151,10 @@ class PriceStreamLogger {
     //    currentMarkets cleanly switch from old -> new markets.
     //
     // We achieve this by scheduling:
-    // - A pre-fetch ~10 seconds before earliest end (when there is enough time),
+    // - A pre-fetch ~5 seconds before earliest end (when there is enough time),
     // - Then, after that pre-fetch, discoverAndConnect() runs again and this
     //   method is called a second time, which will schedule a post-end refresh.
-    const PRE_FETCH_OFFSET_MS = 10000;
+    const PRE_FETCH_OFFSET_MS = 5000;
     const timeToEnd = nextSwitchTime - now;
     let triggerTime = nextSwitchTime;
     let mode: 'prefetch' | 'switch' = 'switch';
@@ -1677,6 +1677,13 @@ class PriceStreamLogger {
    */
   getCurrentMarkets(): Map<string, MarketInfo> {
     return this.marketDiscovery.getCurrentMarkets();
+  }
+
+  /**
+   * Get next markets (loaded 10 seconds before current markets end)
+   */
+  getNextMarkets(): Map<string, MarketInfo> {
+    return this.marketDiscovery.getNextMarkets();
   }
 
   /**

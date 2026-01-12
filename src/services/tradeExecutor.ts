@@ -32,16 +32,28 @@ export class TradeExecutor {
 
     // CRITICAL: Validate market has started (not a future event)
     // Markets must match live ET time - do not trade on future events
+    // Also check nextMarkets - allow trading on next markets if they've started (10s before current ends)
     try {
       const priceStreamLogger = (await import("./priceStreamLogger")).default;
       const currentMarkets = priceStreamLogger.getCurrentMarkets();
+      const nextMarkets = priceStreamLogger.getNextMarkets();
       
-      // Find the market for this token
+      // Find the market for this token (check both current and next markets)
       let marketInfo = null;
       for (const market of currentMarkets.values()) {
         if (market.tokens.some(t => t.token_id === signal.tokenId)) {
           marketInfo = market;
           break;
+        }
+      }
+      
+      // If not found in current markets, check next markets (for early trading)
+      if (!marketInfo) {
+        for (const market of nextMarkets.values()) {
+          if (market.tokens.some(t => t.token_id === signal.tokenId)) {
+            marketInfo = market;
+            break;
+          }
         }
       }
 

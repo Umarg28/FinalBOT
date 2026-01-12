@@ -42,6 +42,8 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
   private marketStates: Map<string, MarketState> = new Map();
   // Track last low balance warning to avoid spam
   private lastLowBalanceWarning: number = 0;
+  // Throttled debug logging (per key)
+  private lastDebugLogTimes: Record<string, number> = {};
   // Optional paper trader for balance reset on new market windows
   private paperTrader?: any;
 
@@ -63,6 +65,15 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
    */
   private get rebalanceConfig(): RebalanceConfig {
     return getRebalanceConfig();
+  }
+
+  private logThrottled(key: string, message: string, intervalMs: number = 30000): void {
+    const now = Date.now();
+    const last = this.lastDebugLogTimes[key] || 0;
+    if (!last || now - last > intervalMs) {
+      this.lastDebugLogTimes[key] = now;
+      this.log(message);
+    }
   }
 
   async onBeforeAnalysis(): Promise<void> {
@@ -136,6 +147,10 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
     // If WebSocket prices not available, skip this market
     if (yesPrice === null || noPrice === null) {
+      this.logThrottled(
+        `missing_prices_${marketType}`,
+        `[${this.getShortName(marketType)}] Skipping: missing WebSocket prices (UP=${yesPrice}, DOWN=${noPrice})`
+      );
       return [];
     }
 
@@ -153,10 +168,10 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     const cooldownSec = this.getMarketCooldown(marketType);
     const timeSinceLastRebalance = (now - state.lastRebalanceTime) / 1000;
     if (timeSinceLastRebalance < cooldownSec) {
-      // Only log debug info occasionally to avoid spam
-      if (Math.random() < 0.01) { // 1% chance to log
-        this.log(`[${this.getShortName(marketType)}] Cooldown: ${timeSinceLastRebalance.toFixed(1)}s < ${cooldownSec}s`);
-      }
+      this.logThrottled(
+        `cooldown_${marketType}`,
+        `[${this.getShortName(marketType)}] Skipping: cooldown ${timeSinceLastRebalance.toFixed(1)}s < ${cooldownSec}s`
+      );
       return [];
     }
 
@@ -164,6 +179,10 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     if (state.flipDetected && state.flipDetectedTime) {
       const timeSinceFlip = (now - state.flipDetectedTime) / 1000;
       if (timeSinceFlip < this.rebalanceConfig.post_flip_cooldown_sec) {
+        this.logThrottled(
+          `postflip_${marketType}`,
+          `[${this.getShortName(marketType)}] Skipping: post-flip cooldown ${timeSinceFlip.toFixed(1)}s < ${this.rebalanceConfig.post_flip_cooldown_sec}s`
+        );
         return [];
       }
       state.flipDetected = false;
@@ -171,10 +190,10 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
     // CLOSE BEHAVIOR: Skip some trades near market close (15m markets only)
     if (this.shouldSkipTradeNearClose(state)) {
-      // Only log debug info occasionally to avoid spam
-      if (Math.random() < 0.01) { // 1% chance to log
-        this.log(`[${this.getShortName(marketType)}] Skipping trade near market close`);
-      }
+      this.logThrottled(
+        `near_close_${marketType}`,
+        `[${this.getShortName(marketType)}] Skipping trade due to near-close behavior`
+      );
       return [];
     }
 
@@ -452,6 +471,10 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
     // Check if we have enough balance
     if (this.balance < this.rebalanceConfig.min_trade_size) {
+      this.logThrottled(
+        `dual_side_low_balance_${marketType}`,
+        `[${this.getShortName(marketType)}] Dual-side: balance too low for trades ($${this.balance.toFixed(2)} < min $${this.rebalanceConfig.min_trade_size.toFixed(2)})`
+      );
       return signals;
     }
 
@@ -619,6 +642,19 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
       }
     }
 
+    if (signals.length === 0) {
+      const totalInventory = inventory.yesValue + inventory.noValue;
+      this.logThrottled(
+        `dual_side_no_signals_${marketType}`,
+        `[${this.getShortName(marketType)}] Dual-side no signals: ` +
+          `upAmt=$${upTradeAmount.toFixed(2)}, downAmt=$${downTradeAmount.toFixed(2)}, ` +
+          `boostedUp=$${boostedUpAmount.toFixed(2)}, boostedDown=$${boostedDownAmount.toFixed(2)}, ` +
+          `yesWeight=${yesWeight.toFixed(2)}, noWeight=${noWeight.toFixed(2)}, ` +
+          `yesDeviation=${yesDeviation.toFixed(3)}, noDeviation=${noDeviation.toFixed(3)}, ` +
+          `totalInventory=$${totalInventory.toFixed(2)}, balance=$${this.balance.toFixed(2)}`
+      );
+    }
+
     return signals;
   }
 
@@ -713,6 +749,10 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
     // Stop trading if loss exceeds limit
     if (totalPnL < -config.max_loss_per_market) {
+      this.logThrottled(
+        `adaptive_stop_${config.max_loss_per_market}`,
+        `[ADAPTIVE] Stopping trades for market due to loss limit: PnL=$${totalPnL.toFixed(2)} < -$${config.max_loss_per_market.toFixed(2)}`
+      );
       return 0.0; // Stop trading this market
     }
 
@@ -879,13 +919,24 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
     // Check if we should stop trading completely
     if (config.close_stop_trading_seconds > 0 && timeLeft.secondsLeft <= config.close_stop_trading_seconds) {
+      this.logThrottled(
+        `close_stop_${state.marketType}`,
+        `[${this.getShortName(state.marketType)}] Close-behavior: stop trading, ${timeLeft.secondsLeft.toFixed(1)}s <= ${config.close_stop_trading_seconds}s`
+      );
       return true;
     }
 
     // Check if we're in reduced activity zone
     if (timeLeft.minutesLeft <= config.close_reduce_activity_minutes) {
+      const skip = Math.random() > config.close_activity_multiplier;
+      if (skip) {
+        this.logThrottled(
+          `close_reduce_${state.marketType}`,
+          `[${this.getShortName(state.marketType)}] Close-behavior: reduced activity, minutesLeft=${timeLeft.minutesLeft.toFixed(2)}, activityMultiplier=${config.close_activity_multiplier}`
+        );
+      }
       // Only execute a percentage of trades (randomly skip)
-      return Math.random() > config.close_activity_multiplier;
+      return skip;
     }
 
     return false;

@@ -325,8 +325,8 @@ export class Dashboard {
     
     dashboardMarket.positions.forEach((pos) => {
       const invested = pos.avgPrice * pos.size;
-      const value = pos.currentValue || pos.currentPrice ? (pos.currentPrice || 0) * pos.size : invested;
-      const pnl = pos.cashPnl || 0;
+      const value = pos.currentValue !== undefined ? pos.currentValue : (pos.currentPrice !== undefined ? pos.currentPrice * pos.size : invested);
+      const pnl = value - invested;
 
       // Count trades for this position
       const trades = tradeHistory.filter(
@@ -447,7 +447,7 @@ export class Dashboard {
 
     for (const market of this.markets) {
       for (const position of market.positions) {
-        const value = position.currentValue || (position.currentPrice || position.avgPrice) * position.size;
+        const value = position.currentValue !== undefined ? position.currentValue : (position.currentPrice !== undefined ? position.currentPrice * position.size : position.avgPrice * position.size);
         const initial = position.avgPrice * position.size;
         const pnlPercent = position.percentPnl || 0;
 
