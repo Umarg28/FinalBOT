@@ -72,12 +72,12 @@ export class AppServer {
       console.log(`[APP] API Key: ${API_KEY}`);
     });
 
-    // Start tracking EdgeBotPro wallet for balance injection (not shown as separate bot)
-    const edgeBotWallet = '0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d';
-    externalWalletTracker.startTracking([edgeBotWallet], 5000); // Update every 5 seconds
-    console.log(`[APP] Tracking EdgeBotPro wallet for balance data`);
+    // Start tracking gabagool22 wallet for balance injection (not shown as separate bot)
+    const gabagoolWallet = '0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d';
+    externalWalletTracker.startTracking([gabagoolWallet], 5000); // Update every 5 seconds
+    console.log(`[APP] Tracking gabagool22 wallet for balance data`);
 
-    // Connect external bots getter to data collector (injects wallet balance into EdgeBotPro)
+    // Connect external bots getter to data collector (injects wallet balance into gabagool22)
     dashboardDataCollector.setExternalBotsGetter(() => this.getMergedExternalBots());
 
     // Start broadcasting updates every 1.5 seconds
@@ -86,7 +86,7 @@ export class AppServer {
 
   /**
    * Get external bots with wallet balance injection
-   * Uses EdgeBotPro's submitted data but injects real wallet balance from Polymarket API
+   * Uses gabagool22's submitted data but injects real wallet balance from Polymarket API
    */
   private getMergedExternalBots(): Map<string, { data: ExternalBotData; lastUpdate: number }> {
     const merged = new Map(this.externalBots);
@@ -94,7 +94,7 @@ export class AppServer {
     // Get wallet data for balance injection
     const walletBots = externalWalletTracker.getExternalBotData();
 
-    // Inject real wallet balance into EdgeBotPro's data
+    // Inject real wallet balance into gabagool22's data
     for (const [botId, entry] of merged.entries()) {
       // Check if this bot has a linked wallet address
       const walletAddress = this.getLinkedWalletAddress(entry.data.botName);
@@ -116,6 +116,7 @@ export class AppServer {
   private getLinkedWalletAddress(botName: string): string | null {
     // Map bot names to their wallet addresses
     const walletMap: Record<string, string> = {
+      'gabagool22': '0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d',
       'EdgeBotPro': '0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d',
       'edgebotpro': '0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d',
     };

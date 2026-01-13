@@ -1237,29 +1237,18 @@ export class PaperTrader {
         const priceDown = data.priceDown || 0;
 
         // Determine winner based on which side has higher price
-        let settledPriceUp = priceUp;
-        let settledPriceDown = priceDown;
-
         // Check if market is resolved (one side near 1.0, other near 0.0)
         if (priceUp >= 0.99 || priceDown <= 0.01) {
           outcome = "UP Won";
-          settledPriceUp = 1.0;
-          settledPriceDown = 0.0;
         } else if (priceDown >= 0.99 || priceUp <= 0.01) {
           outcome = "DOWN Won";
-          settledPriceUp = 0.0;
-          settledPriceDown = 1.0;
         } else if (priceUp > 0 && priceDown > 0) {
           // Market not yet resolved - determine winner from which side has higher price
           // Higher price = more likely to win = winner
           if (priceUp > priceDown) {
             outcome = "UP Won";
-            settledPriceUp = 1.0;
-            settledPriceDown = 0.0;
           } else if (priceDown > priceUp) {
             outcome = "DOWN Won";
-            settledPriceUp = 0.0;
-            settledPriceDown = 1.0;
           } else {
             // Prices are exactly equal - this shouldn't happen in real markets
             // Skip this market from the report as we can't determine outcome
@@ -1267,18 +1256,15 @@ export class PaperTrader {
           }
         }
 
-        // Recalculate PnL using settled binary prices (winner=$1, loser=$0)
-        // This is the ACTUAL profit/loss when market resolves
-        const settledValueUp = sharesUp * settledPriceUp;
-        const settledValueDown = sharesDown * settledPriceDown;
-        const settledTotalValue = settledValueUp + settledValueDown;
-        const settledPnl = settledTotalValue - totalInvested;
-        const settledPnlPercent = totalInvested > 0 ? (settledPnl / totalInvested) * 100 : 0;
+        // Use the stored PnL values directly - these match what the web app displays
+        // The totalPnl and pnlPercent were captured when the market ended and are authoritative
+        const storedPnl = data.totalPnl;
+        const storedPnlPercent = data.pnlPercent;
 
         markets.push({
           name: marketName,
-          pnl: settledPnl,
-          pnlPercent: settledPnlPercent,
+          pnl: storedPnl,
+          pnlPercent: storedPnlPercent,
           avgCostUp,
           avgCostDown,
           avgPriceUp: priceUp,

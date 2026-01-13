@@ -27,10 +27,40 @@
     <!-- Header -->
     <header class="header">
       <div class="header-left">
-        <h1>BETABOT</h1>
-        <span class="mode" id="mode">PAPER MODE</span>
+        <div class="brand">
+          <span class="logo">β</span>
+          <div class="brand-text">
+            <h1>BETABOT</h1>
+            <span class="mode" id="mode">PAPER MODE</span>
+          </div>
+        </div>
+        <div class="header-metrics">
+          <div class="header-metric">
+            <span class="label">Balance</span>
+            <span class="value" id="header-balance">$10,000.00</span>
+          </div>
+          <div class="header-divider"></div>
+          <div class="header-metric">
+            <span class="label">PnL</span>
+            <span class="value" id="header-pnl">$0.00</span>
+          </div>
+          <div class="header-divider desktop-only"></div>
+          <div class="header-metric desktop-only">
+            <span class="label">Markets</span>
+            <span class="value" id="header-market-count">0 Active</span>
+          </div>
+        </div>
       </div>
       <div class="header-right">
+        <div class="bot-switch" id="bot-switch"></div>
+        <div class="theme-toggle">
+          <input type="checkbox" id="theme-toggle" aria-label="Toggle theme" checked>
+          <label for="theme-toggle" class="theme-toggle-label">
+            <span class="theme-icon theme-icon-sun">☀</span>
+            <span class="theme-icon theme-icon-moon">☾</span>
+            <span class="theme-thumb"></span>
+          </label>
+        </div>
         <span class="reset-status" id="reset-status"></span>
         <div class="settings-menu">
           <button class="settings-btn" id="settings-btn" title="Settings">⋮</button>

@@ -53,7 +53,7 @@ export class ExternalWalletTracker {
 
   constructor() {
     // Default wallet names (can be customized)
-    this.walletNames.set('0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d', 'EdgeBotPro');
+    this.walletNames.set('0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d', 'gabagool22');
   }
 
   /**

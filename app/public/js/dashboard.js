@@ -29,6 +29,10 @@ class DashboardClient {
     this.connect = this.connect.bind(this);
     this.handleMessage = this.handleMessage.bind(this);
 
+    // Theme setup before rendering content
+    this.applyStoredTheme();
+    this.initThemeToggle();
+
     // Start connection
     this.connect();
 
@@ -37,6 +41,9 @@ class DashboardClient {
 
     // Initialize bot card click handlers
     this.initBotCardSelector();
+
+    // Initialize header bot switch
+    this.initBotSwitch();
 
     // Initialize period selector
     this.initPeriodSelector();
@@ -53,6 +60,65 @@ class DashboardClient {
         this.ws.send(JSON.stringify({ type: 'ping' }));
       }
     }, 30000);
+  }
+
+  /**
+   * Apply stored theme preferences or system defaults
+   */
+  applyStoredTheme() {
+    const savedTheme = localStorage.getItem('betabot-theme');
+    let theme = savedTheme;
+    if (!theme) {
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      theme = prefersDark ? 'dark' : 'light';
+    }
+    this.setTheme(theme, false);
+
+    const toggle = document.getElementById('theme-toggle');
+    if (toggle) {
+      toggle.checked = theme === 'dark';
+    }
+
+    if (!savedTheme && window.matchMedia) {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = (event) => {
+        const newTheme = event.matches ? 'dark' : 'light';
+        this.setTheme(newTheme, false);
+        const themeToggle = document.getElementById('theme-toggle');
+        if (themeToggle) {
+          themeToggle.checked = newTheme === 'dark';
+        }
+      };
+
+      if (mediaQuery.addEventListener) {
+        mediaQuery.addEventListener('change', handler);
+      } else if (mediaQuery.addListener) {
+        mediaQuery.addListener(handler);
+      }
+    }
+  }
+
+  /**
+   * Initialize theme toggle interactions
+   */
+  initThemeToggle() {
+    const toggle = document.getElementById('theme-toggle');
+    if (!toggle) return;
+
+    toggle.addEventListener('change', () => {
+      const theme = toggle.checked ? 'dark' : 'light';
+      this.setTheme(theme);
+    });
+  }
+
+  /**
+   * Set theme attribute and optionally persist
+   */
+  setTheme(theme, persist = true) {
+    document.documentElement.setAttribute('data-theme', theme);
+    if (persist) {
+      localStorage.setItem('betabot-theme', theme);
+    }
   }
 
   /**
@@ -101,6 +167,30 @@ class DashboardClient {
       // Re-render dashboard with selected bot's data
       if (this.lastData) {
         this.updateDashboardForBot(this.selectedViewBot);
+      }
+    });
+  }
+
+  /**
+   * Initialize header bot switch interactions
+   */
+  initBotSwitch() {
+    const switchEl = document.getElementById('bot-switch');
+    if (!switchEl) return;
+
+    switchEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-bot]');
+      if (!btn) return;
+
+      const botId = btn.dataset.bot;
+      if (!botId || botId === this.selectedViewBot) return;
+
+      this.selectedViewBot = botId;
+      this.updateBotSwitchActive(botId);
+      this.updateSelectedBotIndicator(botId);
+
+      if (this.lastData) {
+        this.updateDashboardForBot(botId);
       }
     });
   }
@@ -768,6 +858,52 @@ class DashboardClient {
   }
 
   /**
+   * Render header bot switch buttons
+   */
+  renderHeaderBotSwitch(bots) {
+    const switchEl = document.getElementById('bot-switch');
+    if (!switchEl) return;
+
+    if (!bots || bots.length <= 1) {
+      switchEl.style.display = bots && bots.length ? 'inline-flex' : 'none';
+      switchEl.innerHTML = bots && bots.length ? `
+        <button data-bot="${bots[0].botId}" class="active">${bots[0].botName.replace(/\s*\(.*\)$/i, '')}</button>
+      ` : '';
+      return;
+    }
+
+    switchEl.style.display = 'inline-flex';
+
+    const html = bots.map(bot => {
+      const label = bot.botName.replace(/\s*\(.*\)$/i, '');
+      return `
+        <button data-bot="${bot.botId}" class="${bot.botId === this.selectedViewBot ? 'active' : ''}">
+          ${label}
+        </button>
+      `;
+    }).join('');
+
+    switchEl.innerHTML = html;
+    this.updateBotSwitchActive(this.selectedViewBot);
+  }
+
+  /**
+   * Update header bot switch active state
+   */
+  updateBotSwitchActive(botId) {
+    const switchEl = document.getElementById('bot-switch');
+    if (!switchEl) return;
+
+    switchEl.querySelectorAll('button[data-bot]').forEach(btn => {
+      if (btn.dataset.bot === botId) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+
+  /**
    * Update history bot selector pills based on available bots
    */
   updateHistoryBotSelector(allBotsHistory) {
@@ -899,6 +1035,12 @@ class DashboardClient {
     pctEl.className = `value pnl ${F.pnlClass(portfolio.totalPnLPercent)}`;
 
     document.getElementById('total-trades').textContent = portfolio.totalTrades;
+
+    // Header quick metrics
+    const headerBalance = document.getElementById('header-balance');
+    if (headerBalance) headerBalance.textContent = F.currency(portfolio.balance);
+    const headerPnl = document.getElementById('header-pnl');
+    if (headerPnl) headerPnl.textContent = `${F.currencyWithSign(portfolio.totalPnL)} (${F.percentWithSign(portfolio.totalPnLPercent)})`;
   }
 
   /**
@@ -925,6 +1067,15 @@ class DashboardClient {
    */
   renderMarkets(containerId, markets) {
     const container = document.getElementById(containerId);
+
+    if (containerId === 'current-markets') {
+      const headerMarketCount = document.getElementById('header-market-count');
+      if (headerMarketCount) {
+        headerMarketCount.textContent = markets && markets.length
+          ? `${markets.length} Active`
+          : '0 Active';
+      }
+    }
 
     if (!markets || markets.length === 0) {
       container.innerHTML = `
@@ -1202,6 +1353,9 @@ class DashboardClient {
     } else {
       botsSection.style.display = 'none';
     }
+
+    // Header bot switch
+    this.renderHeaderBotSwitch(bots);
 
     // Comparison view in tab - market-by-market comparison
     const comparisonTotals = document.getElementById('comparison-totals');

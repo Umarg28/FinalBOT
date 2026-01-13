@@ -6,6 +6,7 @@ import fetchData from '../utils/fetchData';
 import priceStreamLogger from './priceStreamLogger';
 import { getRunId } from '../utils/runId';
 import logger from '../utils/logger';
+import { tradeLogger } from './tradeLogger';
 
 /**
  * Helper function to break down timestamp into detailed components
@@ -78,6 +79,7 @@ export class MarketTracker {
     private isDisplaying = false; // Lock to prevent concurrent display updates
     private priceUpdateInterval: NodeJS.Timeout | null = null; // Interval for frequent price updates
     private lastPriceFetchTime = 0; // Track last price fetch time
+    private sessionStartTime: number = Date.now(); // Track when this session started to filter old trades
 
     constructor() {
         // Initialize CSV file path - use paper folder if in PAPER mode, otherwise watcher folder
@@ -1483,6 +1485,14 @@ export class MarketTracker {
             return; // Already processed this trade, skip to prevent double-counting
         }
 
+        // Skip trades that occurred before this session started (prevents duplicate processing on restart)
+        const tradeTimestamp = activity.timestamp ? new Date(activity.timestamp).getTime() : 0;
+        if (tradeTimestamp > 0 && tradeTimestamp < this.sessionStartTime) {
+            logger.debug(`[MARKET-TRACKER] Skipping old trade from before session start: ${activity.transactionHash?.slice(0, 10)}... (trade: ${new Date(tradeTimestamp).toISOString()}, session: ${new Date(this.sessionStartTime).toISOString()})`);
+            this.processedTrades.add(tradeId); // Mark as processed so we don't check again
+            return;
+        }
+
         const marketKey = this.extractMarketKey(activity);
         const isUp = this.isUpOutcome(activity);
         const shares = parseFloat(activity.size || '0');
@@ -1806,6 +1816,23 @@ export class MarketTracker {
         }
 
         market.lastUpdate = Date.now();
+
+        // Log trade to per-market CSV file
+        if (shouldTrackPosition) {
+            tradeLogger.logTradeFromActivity(
+                activity,
+                marketKey,
+                {
+                    currentPriceUp: market.currentPriceUp,
+                    currentPriceDown: market.currentPriceDown,
+                    totalCostUp: market.totalCostUp,
+                    totalCostDown: market.totalCostDown,
+                    sharesUp: market.sharesUp,
+                    sharesDown: market.sharesDown,
+                }
+            );
+        }
+
         const processDuration = Date.now() - processStartTime;
         logger.debug(`[MARKET-TRACKER] processTrade() completed in ${processDuration}ms - marketKey=${marketKey}, sharesUp=${market.sharesUp}, sharesDown=${market.sharesDown}, investedUp=${market.investedUp}, investedDown=${market.investedDown}, tradesUp=${market.tradesUp}, tradesDown=${market.tradesDown}`);
     }
