@@ -71,7 +71,7 @@ export class MarketTracker {
     private maxMarkets = 8; // Maximum number of markets to track at once (4 current + 4 next)
     private marketsToClose: MarketStats[] = []; // Markets that need to be closed
     private onMarketCloseCallback?: (market: MarketStats) => Promise<void>; // Callback for closing positions
-    private onPreCloseCallback?: (market: MarketStats) => Promise<void>; // Callback 5 seconds before market ends
+    private onPreCloseCallback?: (market: MarketStats) => Promise<void>; // Callback shortly before market ends
     private preCloseTriggeredMarkets: Set<string> = new Set(); // Track markets that have already triggered pre-close
     private processedTrades: Set<string> = new Set(); // Track processed trades to prevent double-counting
     private displayMode: 'WATCH' | 'TRADING' | 'PAPER' = 'TRADING'; // Display mode for header
@@ -496,7 +496,7 @@ export class MarketTracker {
     }
 
     /**
-     * Set callback for 5 seconds before market ends (to capture final PnL)
+     * Set callback shortly before market ends (to capture final PnL)
      */
     setPreCloseCallback(callback: (market: MarketStats) => Promise<void>): void {
         this.onPreCloseCallback = callback;
@@ -2517,7 +2517,7 @@ export class MarketTracker {
         // This ensures PnL is recorded with prices from ~2 minutes before market switch
         const SNAPSHOT_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
         const SNAPSHOT_EARLY_MS = 30 * 1000; // 30 seconds buffer (capture between 2:00-1:30 before end)
-        const PRE_CLOSE_SECONDS = 5 * 1000; // 5 seconds before market ends
+        const PRE_CLOSE_TRIGGER_MS = 10 * 1000;   // Trigger 10 seconds before market ends for all windows
         for (const m of activeMarkets) {
             if (
                 m.endDate &&
@@ -2538,7 +2538,7 @@ export class MarketTracker {
                 }
             }
 
-            // Trigger pre-close callback 5 seconds before market ends
+            // Trigger pre-close callback just before market ends (10s lead)
             if (
                 m.endDate &&
                 this.onPreCloseCallback &&
@@ -2553,10 +2553,12 @@ export class MarketTracker {
                 const maxTimeUntilEnd = is15Min ? 16 * 60 * 1000 : 65 * 60 * 1000;
                 const isEndDateReasonable = timeUntilEnd >= 0 && timeUntilEnd <= maxTimeUntilEnd;
                 
+                const preCloseLeadMs = PRE_CLOSE_TRIGGER_MS;
+                
                 // Only trigger if:
-                // 1. We're within 5 seconds of end (timeUntilEnd <= 5s and > 0)
+                // 1. We're within the lead window of end (timeUntilEnd <= lead window and > 0)
                 // 2. endDate is reasonable (not in distant future)
-                if (timeUntilEnd <= PRE_CLOSE_SECONDS && timeUntilEnd > 0 && isEndDateReasonable) {
+                if (timeUntilEnd <= preCloseLeadMs && timeUntilEnd > 0 && isEndDateReasonable) {
                     // CRITICAL: Force fetch prices BEFORE triggering pre-close callback
                     // This ensures prices are available even if WebSocket switched early
                     if (!m.currentPriceUp || !m.currentPriceDown) {
@@ -2574,7 +2576,7 @@ export class MarketTracker {
                     } catch (error) {
                         console.error(`Error in pre-close callback for ${m.marketKey}:`, error);
                     }
-                } else if (timeUntilEnd <= PRE_CLOSE_SECONDS && timeUntilEnd > 0 && !isEndDateReasonable) {
+                } else if (timeUntilEnd <= preCloseLeadMs && timeUntilEnd > 0 && !isEndDateReasonable) {
                     // Log warning if endDate seems wrong
                     logger.warn(`⚠️ Skipping pre-close callback for ${m.marketName}: endDate seems incorrect (timeUntilEnd=${(timeUntilEnd/1000).toFixed(1)}s, max expected=${(maxTimeUntilEnd/1000/60).toFixed(1)}min)`);
                 }
@@ -3942,6 +3944,188 @@ export class MarketTracker {
             };
 
             this.markets.set(position.marketKey, market);
+        }
+    }
+
+    /**
+     * Sync watcher positions from getUserPositions to marketTracker
+     * This updates sharesUp and sharesDown for markets based on actual positions
+     */
+    syncWatcherPositions(
+        userPositions: Array<{
+            conditionId: string;
+            tokenId: string;
+            size: number;
+            avgPrice: number;
+            outcome: string;
+            title: string;
+            slug?: string;
+            endDate?: string;
+        }>,
+        marketData: Map<string, {
+            conditionId: string;
+            priceUp: number;
+            priceDown: number;
+            assetUp?: string;
+            assetDown?: string;
+            endDate?: number;
+            marketKey?: string;
+            marketName?: string;
+        }>
+    ): void {
+        // Group positions by conditionId
+        const positionsByCondition = new Map<string, {
+            upPosition?: { size: number; avgPrice: number; tokenId: string };
+            downPosition?: { size: number; avgPrice: number; tokenId: string };
+            conditionId: string;
+            title: string;
+            slug?: string;
+            endDate?: number;
+        }>();
+
+        for (const pos of userPositions) {
+            if (!pos.conditionId) continue;
+
+            let marketPos = positionsByCondition.get(pos.conditionId);
+            if (!marketPos) {
+                marketPos = {
+                    conditionId: pos.conditionId,
+                    title: pos.title,
+                    slug: pos.slug,
+                    endDate: pos.endDate ? new Date(pos.endDate).getTime() : undefined,
+                };
+                positionsByCondition.set(pos.conditionId, marketPos);
+            }
+
+            // Determine if UP or DOWN based on outcome or tokenId
+            const isUp = pos.outcome?.toUpperCase().includes("YES") ||
+                        pos.outcome?.toUpperCase().includes("UP") ||
+                        pos.tokenId.endsWith(":0");
+
+            if (isUp) {
+                marketPos.upPosition = {
+                    size: pos.size,
+                    avgPrice: pos.avgPrice,
+                    tokenId: pos.tokenId,
+                };
+            } else {
+                marketPos.downPosition = {
+                    size: pos.size,
+                    avgPrice: pos.avgPrice,
+                    tokenId: pos.tokenId,
+                };
+            }
+        }
+
+        // Update or create markets in marketTracker
+        for (const [conditionId, marketPos] of positionsByCondition.entries()) {
+            // Find matching market data
+            let marketInfo = marketData.get(conditionId);
+            if (!marketInfo) {
+                // Try to find by marketKey if available
+                for (const [key, info] of marketData.entries()) {
+                    if (info.conditionId === conditionId) {
+                        marketInfo = info;
+                        break;
+                    }
+                }
+            }
+
+            // Try to find existing market by conditionId if no marketInfo provided
+            let existingMarket: MarketStats | undefined;
+            let marketKey = conditionId;
+            
+            for (const [key, market] of this.markets.entries()) {
+                if (market.conditionId === conditionId) {
+                    existingMarket = market;
+                    marketKey = key;
+                    break;
+                }
+            }
+
+            // If no existing market and no marketInfo, try to generate marketKey from position data
+            if (!existingMarket && !marketInfo) {
+                // Try to infer marketKey from title/slug
+                const title = marketPos.title.toLowerCase();
+                const slug = marketPos.slug?.toLowerCase() || '';
+                
+                // Check for BTC/ETH and 15m/1h patterns
+                const isBTC = title.includes('btc') || title.includes('bitcoin') || slug.includes('btc');
+                const is15m = title.includes('15') || slug.includes('15m') || slug.includes('15-min');
+                const is1h = title.includes('1h') || title.includes('1-hour') || slug.includes('1h') || slug.includes('hourly');
+                
+                if (isBTC && is15m) {
+                    marketKey = 'BTC-UpDown-15';
+                } else if (!isBTC && is15m) {
+                    marketKey = 'ETH-UpDown-15';
+                } else if (isBTC && is1h) {
+                    marketKey = 'BTC-UpDown-1h';
+                } else if (!isBTC && is1h) {
+                    marketKey = 'ETH-UpDown-1h';
+                }
+                
+                logger.debug(`[MARKET-TRACKER] syncWatcherPositions: Generated marketKey=${marketKey} for conditionId=${conditionId} (no marketInfo)`);
+            } else if (marketInfo) {
+                marketKey = marketInfo.marketKey || marketKey;
+            }
+            const sharesUp = marketPos.upPosition?.size || 0;
+            const sharesDown = marketPos.downPosition?.size || 0;
+            const totalCostUp = marketPos.upPosition ? marketPos.upPosition.size * marketPos.upPosition.avgPrice : 0;
+            const totalCostDown = marketPos.downPosition ? marketPos.downPosition.size * marketPos.downPosition.avgPrice : 0;
+
+            // Get or create market
+            let market = this.markets.get(marketKey);
+            if (!market) {
+                // Create new market if it doesn't exist
+                market = {
+                    marketKey,
+                    marketName: marketInfo?.marketName || marketPos.title,
+                    sharesUp: 0,
+                    sharesDown: 0,
+                    investedUp: 0,
+                    investedDown: 0,
+                    totalCostUp: 0,
+                    totalCostDown: 0,
+                    tradesUp: 0,
+                    tradesDown: 0,
+                    lastUpdate: Date.now(),
+                    conditionId,
+                    assetUp: marketInfo?.assetUp,
+                    assetDown: marketInfo?.assetDown,
+                    currentPriceUp: marketInfo?.priceUp,
+                    currentPriceDown: marketInfo?.priceDown,
+                    endDate: marketInfo?.endDate || marketPos.endDate,
+                    lastPriceUpdate: Date.now(),
+                };
+                this.markets.set(marketKey, market);
+            }
+
+            // Update shares and cost basis
+            market.sharesUp = sharesUp;
+            market.sharesDown = sharesDown;
+            market.totalCostUp = totalCostUp;
+            market.totalCostDown = totalCostDown;
+            market.investedUp = totalCostUp; // For display
+            market.investedDown = totalCostDown; // For display
+            market.lastUpdate = Date.now();
+            market.conditionId = conditionId;
+            market.endDate = marketInfo?.endDate || marketPos.endDate || market.endDate;
+
+            // Update prices if available
+            if (marketInfo && marketInfo.priceUp !== undefined) {
+                market.currentPriceUp = marketInfo.priceUp;
+                market.lastPriceUpdate = Date.now();
+            }
+            if (marketInfo && marketInfo.priceDown !== undefined) {
+                market.currentPriceDown = marketInfo.priceDown;
+                market.lastPriceUpdate = Date.now();
+            }
+
+            // Update assets if available
+            if (marketInfo?.assetUp) market.assetUp = marketInfo.assetUp;
+            if (marketInfo?.assetDown) market.assetDown = marketInfo.assetDown;
+
+            logger.debug(`[MARKET-TRACKER] syncWatcherPositions: Updated market ${marketKey} - sharesUp=${sharesUp}, sharesDown=${sharesDown}, totalCostUp=${totalCostUp}, totalCostDown=${totalCostDown}`);
         }
     }
 

@@ -4,6 +4,7 @@ import { getRebalanceConfig, RebalanceConfig } from "../config/rebalanceConfig";
 import { MarketDataService } from "../services/marketData";
 import priceStreamLogger from "../services/priceStreamLogger";
 import { PnLCalculator } from "../utils/pnlCalculator";
+import telegramNotifier from "../services/telegramNotifier";
 
 interface PriceHistory {
   price: number;
@@ -42,6 +43,8 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
   private marketStates: Map<string, MarketState> = new Map();
   // Track last low balance warning to avoid spam
   private lastLowBalanceWarning: number = 0;
+  // Track last telegram alert times to avoid spam
+  private lastTelegramAlertTimes: Record<string, number> = {};
   // Throttled debug logging (per key)
   private lastDebugLogTimes: Record<string, number> = {};
   // Optional paper trader for balance reset on new market windows
@@ -97,6 +100,18 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
       this.analyzeMarket(state).catch(error => {
         // Log error but return empty array so other markets can still be analyzed
         this.log(`[${this.getShortName(state.marketType)}] Error analyzing market: ${error}`);
+
+        // Send telegram alert for strategy error (throttled per market)
+        const alertKey = `strategy_error_${state.marketType}`;
+        const now = Date.now();
+        const lastAlert = this.lastTelegramAlertTimes[alertKey] || 0;
+        if (now - lastAlert > 5 * 60 * 1000) {
+          this.lastTelegramAlertTimes[alertKey] = now;
+          telegramNotifier.alertStrategyError(
+            `InventoryRebalancing (${this.getShortName(state.marketType)})`,
+            String(error)
+          );
+        }
         return [] as TradeSignal[];
       })
     );
@@ -147,10 +162,30 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
 
     // If WebSocket prices not available, skip this market
     if (yesPrice === null || noPrice === null) {
+      // Check connection status for more detailed logging
+      const connectionStatus = priceStreamLogger.getConnectionStatus();
+      const marketStatus = connectionStatus.find(s => s.market === this.getShortName(marketType));
+      const statusInfo = marketStatus
+        ? `connected=${marketStatus.connected}, hasPrices=${marketStatus.hasPrices}${marketStatus.delay ? `, delay=${(marketStatus.delay/1000).toFixed(1)}s` : ''}`
+        : 'status unknown';
+
       this.logThrottled(
         `missing_prices_${marketType}`,
-        `[${this.getShortName(marketType)}] Skipping: missing WebSocket prices (UP=${yesPrice}, DOWN=${noPrice})`
+        `[${this.getShortName(marketType)}] Waiting for prices: UP=${yesPrice}, DOWN=${noPrice} (${statusInfo})`,
+        10000 // Log every 10 seconds instead of 30
       );
+
+      // Send telegram alert if waiting for prices too long (throttled per market, once per 3 minutes)
+      const alertKey = `market_skipped_${marketType}`;
+      const now = Date.now();
+      const lastAlert = this.lastTelegramAlertTimes[alertKey] || 0;
+      if (now - lastAlert > 3 * 60 * 1000) {
+        this.lastTelegramAlertTimes[alertKey] = now;
+        telegramNotifier.alertMarketSkipped(
+          this.getShortName(marketType),
+          `No prices available (${statusInfo})`
+        );
+      }
       return [];
     }
 
@@ -209,6 +244,14 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
       if (!this.lastLowBalanceWarning || (now - this.lastLowBalanceWarning) > 60000) {
         this.log(`⚠️  INSUFFICIENT BALANCE: $${this.balance.toFixed(2)} (min: $${this.rebalanceConfig.min_trade_size.toFixed(2)}) - Trading paused`);
         this.lastLowBalanceWarning = now;
+
+        // Send telegram alert for low balance (throttled to once per 10 minutes)
+        const alertKey = 'low_balance';
+        const lastAlert = this.lastTelegramAlertTimes[alertKey] || 0;
+        if (now - lastAlert > 10 * 60 * 1000) {
+          this.lastTelegramAlertTimes[alertKey] = now;
+          telegramNotifier.alertLowBalance(this.balance, this.rebalanceConfig.min_trade_size);
+        }
       }
       return [];
     }
@@ -278,6 +321,15 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
       const foundTypes = Array.from(streamMarkets.keys());
       this.log(`[DEBUG] priceStreamLogger markets: [${foundTypes.join(', ')}]`);
       this.log(`[DEBUG] Missing: [${missingTypes.join(', ')}]`);
+
+      // Send telegram alert for missing markets (throttled to once per 5 minutes)
+      const alertKey = 'missing_markets';
+      const now = Date.now();
+      const lastAlert = this.lastTelegramAlertTimes[alertKey] || 0;
+      if (now - lastAlert > 5 * 60 * 1000) {
+        this.lastTelegramAlertTimes[alertKey] = now;
+        telegramNotifier.alertMissingMarkets(missingTypes, foundTypes);
+      }
     }
 
     for (const marketType of InventoryBalancedRebalancingStrategy.MARKET_TYPES) {

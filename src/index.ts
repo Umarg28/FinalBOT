@@ -139,7 +139,20 @@ export class PolymarketBot {
     if (ENV.ENABLE_WEB_DASHBOARD && AppServer && dashboardDataCollector) {
       this.appServer = new AppServer(ENV.WEB_DASHBOARD_PORT);
       dashboardDataCollector.setPaperTrader(this.paperTrader);
+      // Set marketData service for watcher mode position syncing
+      if (this.marketData) {
+        dashboardDataCollector.setMarketData(this.marketData);
+      }
       this.appServer.start();
+
+      // Wire up reset callback to clear PnL history
+      this.appServer.setOnReset((target: string) => {
+        if (target === 'main' || target === 'all') {
+          logger.info(`[RESET] Resetting paper account (target: ${target})`);
+          this.paperTrader.resetAccount();
+          this.appServer?.clearPendingReset(target);
+        }
+      });
     }
 
     if (this.isWatcherMode) {
@@ -477,6 +490,16 @@ export class PolymarketBot {
             return;
           }
         }
+
+        const normalizeClosingPrice = (price?: number | null): number => {
+          if (price === undefined || price === null) return 0;
+          if (price >= 0.995) return 1.0;
+          if (price <= 0.005) return 0.0;
+          return Number(price.toFixed(4));
+        };
+
+        capturedData.currentPriceUp = normalizeClosingPrice(capturedData.currentPriceUp);
+        capturedData.currentPriceDown = normalizeClosingPrice(capturedData.currentPriceDown);
 
         // Determine winner based on current prices and set SETTLEMENT prices (1.0/0.0)
         let settledPriceUp: number;

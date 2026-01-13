@@ -12,10 +12,24 @@ import { MarketDataService } from "./marketData";
 import { getRunId } from "../utils/runId";
 import { PnLCalculator, PortfolioPnL } from "../utils/pnlCalculator";
 import { CSVExporter } from "../utils/csvExporter";
+import telegramNotifier from "./telegramNotifier";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import chalk from "chalk";
+
+const normalizeTerminalPrice = (price: number): number => {
+  if (!Number.isFinite(price)) {
+    return price;
+  }
+  if (price >= 0.995) {
+    return 1.0;
+  }
+  if (price <= 0.005) {
+    return 0.0;
+  }
+  return Number(price.toFixed(4));
+};
 
 export class PaperTrader {
   private account: PaperAccount;
@@ -35,6 +49,7 @@ export class PaperTrader {
     sharesDown: number;
     timestamp: number;
   }> = new Map();
+  private pnlHistoryFilePath: string = '';
 
   constructor(marketData: MarketDataService, startingBalance?: number) {
     this.marketData = marketData;
@@ -81,6 +96,10 @@ export class PaperTrader {
     this.csvExporter = new CSVExporter(paperDir);
     this.initializeCsv();
 
+    // Initialize PnL history persistence file (shared across runs)
+    this.pnlHistoryFilePath = path.join(paperDir, 'pnl_history.json');
+    this.loadPnLHistory();
+
     logger.paper(`Paper account initialized with $${this.account.balance} USDC`);
   }
 
@@ -120,6 +139,50 @@ export class PaperTrader {
     }
   }
 
+  /**
+   * Load PnL history from persistent JSON file
+   */
+  private loadPnLHistory(): void {
+    try {
+      if (fs.existsSync(this.pnlHistoryFilePath)) {
+        const data = fs.readFileSync(this.pnlHistoryFilePath, 'utf8');
+        const parsed = JSON.parse(data);
+
+        // Convert array back to Map
+        if (Array.isArray(parsed)) {
+          this.marketPnLData = new Map(parsed.map(item => [item.conditionId, item]));
+          // Also restore loggedMarkets to prevent duplicates
+          this.loggedMarkets = new Set(parsed.map(item => item.conditionId));
+          logger.info(`Loaded ${this.marketPnLData.size} PnL history entries from disk`);
+        }
+      }
+    } catch (error) {
+      logger.error(`Failed to load PnL history: ${error}`);
+    }
+  }
+
+  /**
+   * Save PnL history to persistent JSON file
+   */
+  private savePnLHistory(): void {
+    try {
+      const data = Array.from(this.marketPnLData.values());
+      fs.writeFileSync(this.pnlHistoryFilePath, JSON.stringify(data, null, 2), 'utf8');
+    } catch (error) {
+      logger.error(`Failed to save PnL history: ${error}`);
+    }
+  }
+
+  /**
+   * Clear persisted PnL history (called on reset)
+   */
+  clearPnLHistory(): void {
+    this.marketPnLData.clear();
+    this.loggedMarkets.clear();
+    this.savePnLHistory();
+    logger.info('PnL history cleared');
+  }
+
   private loggedMarkets: Set<string> = new Set(); // Track markets already logged to prevent duplicates
 
 
@@ -148,6 +211,9 @@ export class PaperTrader {
       return;
     }
 
+    const normalizedPriceUp = normalizeTerminalPrice(priceUp);
+    const normalizedPriceDown = normalizeTerminalPrice(priceDown);
+
     try {
       // Try to get positions for enhanced calculation, but don't require them
       // (positions may be settled/removed after market closes)
@@ -158,14 +224,14 @@ export class PaperTrader {
       // If we have positions, use enhanced calculator for more detailed PnL
       if (marketPositions.length > 0) {
         // Build current prices map
-        const currentPrices = new Map<string, number>();
-        for (const pos of marketPositions) {
-          if (pos.outcome?.toLowerCase() === 'up' || pos.outcome?.toLowerCase() === 'yes') {
-            currentPrices.set(pos.tokenId, priceUp);
-          } else if (pos.outcome?.toLowerCase() === 'down' || pos.outcome?.toLowerCase() === 'no') {
-            currentPrices.set(pos.tokenId, priceDown);
+          const currentPrices = new Map<string, number>();
+          for (const pos of marketPositions) {
+            if (pos.outcome?.toLowerCase() === 'up' || pos.outcome?.toLowerCase() === 'yes') {
+              currentPrices.set(pos.tokenId, normalizedPriceUp);
+            } else if (pos.outcome?.toLowerCase() === 'down' || pos.outcome?.toLowerCase() === 'no') {
+              currentPrices.set(pos.tokenId, normalizedPriceDown);
+            }
           }
-        }
 
         // Calculate market PnL using enhanced calculator
         marketPnL = PnLCalculator.calculateMarketPnL(
@@ -204,8 +270,8 @@ export class PaperTrader {
         marketName,
         conditionId,
         marketPnL: finalMarketPnL,
-        priceUp,
-        priceDown,
+        priceUp: normalizedPriceUp,
+        priceDown: normalizedPriceDown,
         totalPnl,
         pnlPercent,
         sharesUp,
@@ -215,6 +281,9 @@ export class PaperTrader {
 
       // Mark this market as logged to prevent duplicates
       this.loggedMarkets.add(conditionId);
+
+      // Persist to disk
+      this.savePnLHistory();
 
       logger.paper(`📊 Dashboard PnL captured: ${marketName} - ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}%)`);
       
@@ -236,8 +305,8 @@ export class PaperTrader {
           marketName,
           conditionId,
           marketPnL: { totalPnl, pnlPercent, positions: [], totalCostBasis: 0 },
-          priceUp,
-          priceDown,
+          priceUp: normalizedPriceUp,
+          priceDown: normalizedPriceDown,
           totalPnl,
           pnlPercent,
           sharesUp,
@@ -245,7 +314,8 @@ export class PaperTrader {
           timestamp: Date.now()
         });
         this.loggedMarkets.add(conditionId);
-        
+        this.savePnLHistory();
+
         // Regenerate report even for fallback data
         try {
           this.generateFormattedPnLReport();
@@ -696,6 +766,13 @@ export class PaperTrader {
       execution.status = "failed";
       execution.error = error instanceof Error ? error.message : "Unknown error";
       logger.error(`Paper trade execution error for ${signal.side} ${signal.size} @ $${signal.price}:`, error);
+
+      // Send telegram alert for trade execution error
+      telegramNotifier.alertTradeError(
+        signal.marketId || 'Unknown Market',
+        signal.side,
+        execution.error
+      );
     }
 
     // Log execution result for debugging
@@ -931,6 +1008,8 @@ export class PaperTrader {
       startingBalance: this.account.startingBalance,
       createdAt: new Date(),
     };
+    // Clear persisted PnL history on reset
+    this.clearPnLHistory();
     logger.paper("Paper account reset");
   }
 

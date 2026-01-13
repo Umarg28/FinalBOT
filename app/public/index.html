@@ -31,6 +31,15 @@
         <span class="mode" id="mode">PAPER MODE</span>
       </div>
       <div class="header-right">
+        <span class="reset-status" id="reset-status"></span>
+        <div class="settings-menu">
+          <button class="settings-btn" id="settings-btn" title="Settings">⋮</button>
+          <div class="settings-dropdown" id="settings-dropdown">
+            <button class="dropdown-item" id="reset-main-btn">Reset Main Bot Stats</button>
+            <button class="dropdown-item" id="reset-external-btn">Reset External Bot Stats</button>
+            <button class="dropdown-item danger" id="reset-all-btn">Reset All Stats</button>
+          </div>
+        </div>
         <span class="connection" id="connection">
           <span class="dot"></span>
           <span class="status-text">Connecting...</span>
@@ -40,6 +49,10 @@
 
     <!-- Portfolio Summary -->
     <section class="portfolio-summary">
+      <div class="metric wallet-total">
+        <span class="label">Wallet Total</span>
+        <span class="value" id="wallet-total">$10,000.00</span>
+      </div>
       <div class="metric">
         <span class="label">Balance</span>
         <span class="value" id="balance">$10,000.00</span>
@@ -66,6 +79,45 @@
       </div>
     </section>
 
+    <!-- Quick Stats Bar -->
+    <section class="quick-stats">
+      <div class="quick-stat">
+        <span class="qs-label">Win Rate</span>
+        <span class="qs-value" id="qs-winrate">0%</span>
+      </div>
+      <div class="quick-stat">
+        <span class="qs-label">Avg Win</span>
+        <span class="qs-value positive" id="qs-avgwin">$0.00</span>
+      </div>
+      <div class="quick-stat">
+        <span class="qs-label">Avg Loss</span>
+        <span class="qs-value negative" id="qs-avgloss">$0.00</span>
+      </div>
+      <div class="quick-stat">
+        <span class="qs-label">Profit Factor</span>
+        <span class="qs-value" id="qs-pf">0.00</span>
+      </div>
+    </section>
+
+    <!-- PnL Time Period Summary -->
+    <section class="pnl-periods">
+      <div class="period-selector" id="period-selector">
+        <button class="period-btn active" data-period="1d">24H</button>
+        <button class="period-btn" data-period="1w">7D</button>
+        <button class="period-btn" data-period="1m">30D</button>
+        <button class="period-btn" data-period="all">All</button>
+      </div>
+      <div class="period-stats">
+        <div class="period-stat-main">
+          <span class="period-pnl" id="period-pnl">$0.00</span>
+          <span class="period-pnl-percent" id="period-pnl-percent">(0.00%)</span>
+        </div>
+        <div class="period-details">
+          <span class="period-trades" id="period-trades">0 trades</span>
+        </div>
+      </div>
+    </section>
+
     <!-- Market Type Summary -->
     <section class="market-type-summary">
       <div class="type-card">
@@ -80,10 +132,25 @@
       </div>
     </section>
 
+    <!-- Bot Selector (shown when multiple bots connected) -->
+    <section class="bots-section" id="bots-section" style="display: none;">
+      <div class="bots-header">
+        <div>
+          <span class="bots-title">Connected Bots</span>
+          <span class="bots-hint"> - Click to switch view</span>
+        </div>
+        <span class="bots-count" id="bots-count">1 bot</span>
+      </div>
+      <div class="bots-grid" id="bots-grid">
+        <!-- Bot cards rendered by JS -->
+      </div>
+    </section>
+
     <!-- Tab Navigation -->
     <nav class="tabs">
       <button class="tab active" data-tab="markets">Markets</button>
-      <button class="tab" data-tab="history">PnL History</button>
+      <button class="tab" data-tab="history">History</button>
+      <button class="tab" data-tab="bots">Compare</button>
     </nav>
 
     <!-- Tab Content: Markets -->
@@ -112,6 +179,18 @@
     <!-- Tab Content: PnL History -->
     <div class="tab-content" id="tab-history">
       <section class="history-section">
+        <!-- Bot Selector Pills -->
+        <div class="history-bot-selector" id="history-bot-selector">
+          <button class="bot-pill active" data-bot="main">BETABOT</button>
+        </div>
+
+        <!-- Market Type Filter -->
+        <div class="history-filters" id="history-filters">
+          <button class="filter-pill active" data-filter="all">All</button>
+          <button class="filter-pill" data-filter="15m">15-Min</button>
+          <button class="filter-pill" data-filter="1h">1-Hour</button>
+        </div>
+
         <div class="history-summary">
           <div class="history-stat">
             <span class="stat-label">Total Markets</span>
@@ -134,6 +213,28 @@
       </section>
     </div>
 
+    <!-- Tab Content: Bot Comparison -->
+    <div class="tab-content" id="tab-bots">
+      <section class="comparison-section">
+        <div class="comparison-header">
+          <span class="comparison-title">Market-by-Market Comparison</span>
+          <span class="comparison-count" id="total-bots">1 bot</span>
+        </div>
+
+        <!-- Summary totals for each bot -->
+        <div class="comparison-totals" id="comparison-totals">
+          <!-- Bot total cards rendered by JS -->
+        </div>
+
+        <!-- Market-by-market comparison list -->
+        <div class="comparison-markets" id="comparison-markets">
+          <div class="history-empty">
+            <p>Loading comparison data...</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <!-- Footer -->
     <footer class="footer">
       <span id="last-update">Last update: --</span>
@@ -146,9 +247,22 @@
   <!-- Register Service Worker for PWA -->
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
+      window.addEventListener('load', async () => {
+        // Force unregister all old service workers and clear caches
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) {
+          await reg.unregister();
+          console.log('[PWA] Unregistered old service worker');
+        }
+        // Clear all caches
+        const cacheNames = await caches.keys();
+        for (const name of cacheNames) {
+          await caches.delete(name);
+          console.log('[PWA] Deleted cache:', name);
+        }
+        // Register fresh service worker
         navigator.serviceWorker.register('/sw.js')
-          .then((reg) => console.log('[PWA] Service worker registered'))
+          .then((reg) => console.log('[PWA] Service worker registered fresh'))
           .catch((err) => console.log('[PWA] Service worker registration failed:', err));
       });
     }

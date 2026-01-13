@@ -12,6 +12,7 @@ import WebSocket from 'ws';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getRunId } from '../utils/runId';
+import telegramNotifier from './telegramNotifier';
 
 // ============================================================================
 // Configuration
@@ -982,6 +983,10 @@ class PriceStreamLogger {
   private lastDiscoveryTime = 0; // Throttle expensive market discovery calls
   private nextSwitchTimeout: NodeJS.Timeout | null = null; // Precise scheduling for next window switch
 
+  // Track when each asset first receives a price (for connection delay logging)
+  private assetFirstPriceTime: Map<string, number> = new Map();
+  private assetSubscribeTime: Map<string, number> = new Map();
+
   // For trade entry marking
   private loggedTradeEntries: Set<string> = new Set();
 
@@ -1079,6 +1084,8 @@ class PriceStreamLogger {
 
     if (currentMarkets.size === 0) {
       log('warn', 'No active markets found. Will retry in 30 seconds...');
+      // Send Telegram alert for no markets
+      telegramNotifier.alertNoMarketsFound();
       return;
     }
 
@@ -1086,6 +1093,7 @@ class PriceStreamLogger {
 
     if (assetIds.length === 0) {
       log('error', 'No asset IDs found');
+      telegramNotifier.alertMarketConnectionError('All Markets', 'No asset IDs found after market discovery');
       return;
     }
 
@@ -1324,13 +1332,21 @@ class PriceStreamLogger {
 
     // Get next asset IDs for background streaming (10s before market end)
     const nextAssetIds = this.marketDiscovery.getNextAssetIds();
-    
+
     // Combine current and next asset IDs for subscription
     const allAssetIds = [...new Set([...this.currentAssetIds, ...nextAssetIds])];
 
     // Count markets (each market has 2 tokens: UP and DOWN)
     const currentMarketCount = this.marketDiscovery.getCurrentMarkets().size;
     const nextMarketCount = this.marketDiscovery.getNextMarkets().size;
+
+    // Track subscription time for each asset (for connection delay logging)
+    const subscribeTime = Date.now();
+    for (const assetId of allAssetIds) {
+      if (!this.assetSubscribeTime.has(assetId)) {
+        this.assetSubscribeTime.set(assetId, subscribeTime);
+      }
+    }
 
     const subscribeMsg = {
       assets_ids: allAssetIds,
@@ -1422,6 +1438,7 @@ class PriceStreamLogger {
     log('debug', `[PRICE-STREAM] handleBookEvent() - asset_id=${asset_id}, midPrice=${midPrice}, finalPrice=${price}, lastTradePrice=${state.lastTradePrice}`);
 
     if (price !== null) {
+      this.trackFirstPrice(asset_id, price);
       this.maybeWriteRow(asset_id, price, bestBid, bestAsk, timestamp);
     } else {
       log('debug', `[PRICE-STREAM] handleBookEvent() - asset_id=${asset_id}, price is null, skipping write`);
@@ -1457,6 +1474,7 @@ class PriceStreamLogger {
       log('debug', `[PRICE-STREAM] handlePriceChangeEvent() - asset_id=${asset_id}, midPrice=${midPrice}, finalPrice=${price}, lastTradePrice=${state.lastTradePrice}`);
 
       if (price !== null) {
+        this.trackFirstPrice(asset_id, price);
         this.maybeWriteRow(asset_id, price, state.bestBid, state.bestAsk, timestamp);
       } else {
         log('debug', `[PRICE-STREAM] handlePriceChangeEvent() - asset_id=${asset_id}, price is null, skipping write`);
@@ -1479,6 +1497,7 @@ class PriceStreamLogger {
     const midPrice = computeMidPrice(state.bestBid, state.bestAsk);
     const price = midPrice ?? tradePrice;
 
+    this.trackFirstPrice(asset_id, price);
     this.maybeWriteRow(asset_id, price, state.bestBid, state.bestAsk, timestamp);
   }
 
@@ -1495,6 +1514,7 @@ class PriceStreamLogger {
     const price = midPrice ?? state.lastTradePrice;
 
     if (price !== null) {
+      this.trackFirstPrice(asset_id, price);
       this.maybeWriteRow(asset_id, price, state.bestBid, state.bestAsk, timestamp);
     }
   }
@@ -1613,8 +1633,93 @@ class PriceStreamLogger {
     return marketType.includes('15m') ? 'ETH-15m' : 'ETH-1h';
   }
 
+  /**
+   * Track when first price is received for an asset and log connection delay
+   */
+  private trackFirstPrice(assetId: string, price: number): void {
+    if (this.assetFirstPriceTime.has(assetId)) {
+      return; // Already tracked
+    }
+
+    const now = Date.now();
+    this.assetFirstPriceTime.set(assetId, now);
+
+    const subscribeTime = this.assetSubscribeTime.get(assetId);
+    if (subscribeTime) {
+      const delayMs = now - subscribeTime;
+      const delaySec = (delayMs / 1000).toFixed(2);
+
+      // Find which market this asset belongs to
+      let marketName = 'unknown';
+      const currentMarkets = this.marketDiscovery.getCurrentMarkets();
+      const nextMarkets = this.marketDiscovery.getNextMarkets();
+
+      for (const [marketType, market] of [...currentMarkets, ...nextMarkets]) {
+        const tokens = market.tokens || [];
+        if (tokens.some((t: MarketToken) => t.token_id === assetId)) {
+          marketName = this.getHistoryKey(marketType);
+          break;
+        }
+      }
+
+      if (delayMs > 10000) {
+        // Critical delay > 10s - send Telegram alert
+        log('warn', `⚠️ [${marketName}] First price received after ${delaySec}s delay (price: ${price.toFixed(4)})`);
+        telegramNotifier.alertPriceDelay(marketName, delayMs / 1000);
+      } else if (delayMs > 5000) {
+        // Warning delay > 5s - just log
+        log('warn', `⚠️ [${marketName}] First price received after ${delaySec}s delay (price: ${price.toFixed(4)})`);
+      } else {
+        log('info', `✓ [${marketName}] First price received in ${delaySec}s (price: ${price.toFixed(4)})`);
+      }
+    }
+  }
+
+  /**
+   * Get connection status for all markets
+   */
+  getConnectionStatus(): { market: string; connected: boolean; hasPrices: boolean; delay?: number }[] {
+    const status: { market: string; connected: boolean; hasPrices: boolean; delay?: number }[] = [];
+    const currentMarkets = this.marketDiscovery.getCurrentMarkets();
+
+    for (const [marketType, market] of currentMarkets) {
+      const marketName = this.getHistoryKey(marketType);
+      const tokens = market.tokens || [];
+      let hasPrices = false;
+      let minDelay: number | undefined;
+
+      for (const token of tokens) {
+        const state = this.assetStates.get(token.token_id);
+        if (state && (state.bestBid !== null || state.bestAsk !== null || state.lastPrice !== null)) {
+          hasPrices = true;
+        }
+
+        const firstPriceTime = this.assetFirstPriceTime.get(token.token_id);
+        const subscribeTime = this.assetSubscribeTime.get(token.token_id);
+        if (firstPriceTime && subscribeTime) {
+          const delay = firstPriceTime - subscribeTime;
+          if (minDelay === undefined || delay < minDelay) {
+            minDelay = delay;
+          }
+        }
+      }
+
+      status.push({
+        market: marketName,
+        connected: this.isConnected,
+        hasPrices,
+        delay: minDelay,
+      });
+    }
+
+    return status;
+  }
+
   private onError(error: Error): void {
     log('error', 'WebSocket error:', error.message);
+
+    // Send Telegram alert for WebSocket errors
+    telegramNotifier.alertMarketConnectionError('All Markets', error.message);
   }
 
   private onClose(code: number, reason: Buffer): void {
@@ -1623,6 +1728,10 @@ class PriceStreamLogger {
     this.stopPingInterval();
 
     if (!this.isShuttingDown) {
+      // Send Telegram alert for unexpected disconnection
+      if (code !== 1000) { // 1000 = normal close
+        telegramNotifier.alertWebSocketDisconnected(code, this.reconnectAttempts);
+      }
       this.scheduleReconnect();
     }
   }
@@ -1638,6 +1747,15 @@ class PriceStreamLogger {
     );
 
     log('info', `Reconnecting in ${backoff}ms...`);
+
+    // Send Telegram alert if multiple reconnect attempts (every 3rd attempt)
+    if (this.reconnectAttempts > 0 && this.reconnectAttempts % 3 === 0) {
+      telegramNotifier.alertMarketConnectionError(
+        'All Markets',
+        `Connection unstable - ${this.reconnectAttempts} reconnect attempts`,
+        backoff / 1000
+      );
+    }
 
     this.reconnectTimeout = setTimeout(async () => {
       this.reconnectAttempts++;

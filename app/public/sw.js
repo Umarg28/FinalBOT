@@ -3,7 +3,7 @@
  * Enables offline support and caching for PWA
  */
 
-const CACHE_NAME = 'betabot-v1';
+const CACHE_NAME = 'betabot-v11';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

@@ -118,6 +118,9 @@ export const ENV = {
   // Web Dashboard settings
   ENABLE_WEB_DASHBOARD: getEnvVarBoolean("ENABLE_WEB_DASHBOARD", false), // Enable web dashboard server
   WEB_DASHBOARD_PORT: getEnvVarNumber("WEB_DASHBOARD_PORT", 3000), // Port for web dashboard
+
+  // External wallet tracking (comma-separated list of wallet addresses)
+  EXTERNAL_WALLETS: getEnvVar("EXTERNAL_WALLETS", false), // e.g., "0x123...,0x456..."
 };
 
 export default ENV;

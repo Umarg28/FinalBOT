@@ -30,6 +30,8 @@ interface MarketPositionStats {
   downPnL: number;
   upTrades: number;
   downTrades: number;
+  upShares: number;
+  downShares: number;
   totalInvested: number;
   totalValue: number;
   totalPnL: number;
@@ -315,6 +317,8 @@ export class Dashboard {
       downPnL: 0,
       upTrades: 0,
       downTrades: 0,
+      upShares: 0,
+      downShares: 0,
       totalInvested: 0,
       totalValue: 0,
       totalPnL: 0,
@@ -344,12 +348,14 @@ export class Dashboard {
         stats.upValue += value;
         stats.upPnL += pnl;
         stats.upTrades += trades || 1; // Default to 1 if no trade history
+        stats.upShares += pos.size;
       } else {
         stats.downPosition = pos;
         stats.downInvested += invested;
         stats.downValue += value;
         stats.downPnL += pnl;
         stats.downTrades += trades || 1;
+        stats.downShares += pos.size;
       }
     });
 
@@ -476,12 +482,16 @@ export class Dashboard {
     let totalInvested = 0;
     let totalValue = 0;
     let totalTrades = 0;
+    let totalUpShares = 0;
+    let totalDownShares = 0;
 
     for (const market of this.markets) {
       const stats = this.getMarketStats(market);
       totalInvested += stats.totalInvested;
       totalValue += stats.totalValue;
       totalTrades += stats.upTrades + stats.downTrades;
+      totalUpShares += stats.upShares;
+      totalDownShares += stats.downShares;
     }
 
     const totalPnL = totalValue - totalInvested;
@@ -506,6 +516,20 @@ export class Dashboard {
       `Weighted PnL: ${weightedColor(`${weightedSign}${Math.abs(weightedPnL).toFixed(2)}%`)} ` +
       chalk.gray(`(larger positions weighted more)`)
     );
+    
+    // Shares distribution bar
+    const totalShares = totalUpShares + totalDownShares;
+    if (totalShares > 0) {
+      const upSharesPercent = (totalUpShares / totalShares) * 100;
+      const downSharesPercent = (totalDownShares / totalShares) * 100;
+      const sharesBar = this.renderDistributionBar(upSharesPercent, downSharesPercent);
+      console.log(
+        `Shares Distribution: ${sharesBar} ` +
+        `${chalk.green(`UP: ${totalUpShares.toFixed(2)} (${upSharesPercent.toFixed(1)}%)`)} / ` +
+        `${chalk.red(`DOWN: ${totalDownShares.toFixed(2)} (${downSharesPercent.toFixed(1)}%)`)}`
+      );
+    }
+    
     console.log();
   }
 
