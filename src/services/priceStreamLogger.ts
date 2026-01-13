@@ -148,6 +148,7 @@ interface GammaMarket {
   active: boolean;
   clobTokenIds: string;
   outcomes: string;
+  market_type?: string;
 }
 
 // CSV Row format matching your existing structure
@@ -379,6 +380,30 @@ class MarketDiscovery {
               eventSlug.startsWith(prefix.toLowerCase())
             ) || null;
 
+          // CRITICAL: Check if this is an hourly market (has specific time) vs daily market (no time)
+          // Daily markets like "Bitcoin Up or Down on January 13?" should NOT be treated as 1-hour markets
+          // Hourly markets have patterns like "3PM ET", "12AM ET", "1pm-et" in the title
+          const hasSingleTime =
+            /\b\d{1,2}\s*(?:am|pm)\s*ET\b/i.test(title) ||
+            /\b\d{1,2}(?:am|pm)\s*ET\b/i.test(title) ||
+            /\b\d{1,2}(?:am|pm)-et\b/i.test(title);
+          const hasTimeRange =
+            /\d{1,2}:\d{2}\s*(?:am|pm)\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)/i.test(title);
+
+          // Check for daily market patterns (no specific hour time)
+          // Daily markets have titles like "Bitcoin Up or Down on January 13?" without hour specifier
+          const isDailyMarket = !hasSingleTime && !hasTimeRange &&
+            (titleLower.includes('up or down on') || titleLower.includes('up or down?') ||
+             (titleLower.includes('up or down') && !hasSingleTime));
+
+          // If slug matched a 1-hour pattern but this is actually a daily market, skip it
+          if (marketType && (marketType === 'bitcoin-up-or-down' || marketType === 'ethereum-up-or-down')) {
+            if (isDailyMarket) {
+              log('debug', `[DISCOVER-SKIP] Skipping DAILY market (not hourly): "${title}" (slug=${marketSlug})`);
+              continue; // Skip daily markets - we only want hourly markets
+            }
+          }
+
           // Fallback: classify 1-hour Up/Down markets from title/question pattern
           // Example: "Bitcoin Up or Down - January 10, 3PM ET"
           if (!marketType) {
@@ -388,11 +413,6 @@ class MarketDiscovery {
               titleLower.includes('ethereum') ||
               titleLower.includes('eth');
             const hasUpDownWords = /up or down/i.test(title) || /up\s*\/\s*down/i.test(titleLower);
-            const hasTimeRange =
-              /\d{1,2}:\d{2}\s*(?:am|pm)\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)/i.test(title);
-            const hasSingleTime =
-              /\b\d{1,2}\s*(?:am|pm)\s*ET\b/i.test(title) ||
-              /\b\d{1,2}(?:am|pm)\s*ET\b/i.test(title);
 
             if (hasCrypto && hasUpDownWords && hasSingleTime && !hasTimeRange) {
               const isBTC = titleLower.includes('bitcoin') || titleLower.includes('btc');
@@ -412,6 +432,10 @@ class MarketDiscovery {
             }
             continue;
           }
+
+          // Override market_type with the normalized classification so downstream
+          // logic consistently keys maps by the slug-style identifiers (btc-updown-15m, etc.)
+          market.market_type = marketType;
 
           let tokenIds: string[] = [];
           let outcomeNames: string[] = [];

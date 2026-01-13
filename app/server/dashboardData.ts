@@ -154,13 +154,13 @@ export class DashboardDataCollector {
 
         const history: PnLHistoryEntry[] = (entry.data.pnlHistory || []).map(h => ({
           marketName: h.marketName,
-          conditionId: '',
+          conditionId: (h as any).conditionId || '',
           totalPnl: h.totalPnl,
           pnlPercent: h.pnlPercent,
-          priceUp: 0,
-          priceDown: 0,
-          sharesUp: 0,
-          sharesDown: 0,
+          priceUp: (h as any).priceUp ?? (h.outcome === 'UP' ? 1 : 0),
+          priceDown: (h as any).priceDown ?? (h.outcome === 'DOWN' ? 1 : 0),
+          sharesUp: (h as any).sharesUp ?? 0,
+          sharesDown: (h as any).sharesDown ?? 0,
           timestamp: h.timestamp,
           outcome: (h.outcome === 'WIN' || h.outcome === 'UP' ? 'UP' : 'DOWN') as 'UP' | 'DOWN' | 'UNKNOWN',
         }));

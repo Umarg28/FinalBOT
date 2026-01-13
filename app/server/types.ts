@@ -259,6 +259,12 @@ export interface ExternalBotData {
     outcome: 'UP' | 'DOWN' | 'WIN' | 'LOSS';
     timestamp: number;
     marketType?: '15m' | '1h';  // Optional market type tag
+    // Optional fields for full tracking
+    sharesUp?: number;
+    sharesDown?: number;
+    priceUp?: number;
+    priceDown?: number;
+    conditionId?: string;
   }>;
   // Current active markets with full details
   currentMarkets?: Array<{

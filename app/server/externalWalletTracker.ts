@@ -294,10 +294,31 @@ export class ExternalWalletTracker {
 
     // Build PnL history from completed/expired positions
     const pnlHistory: ExternalBotData['pnlHistory'] = [];
+    const now = Date.now();
 
     for (const market of currentMarkets) {
       if (market.isExpired && market.totalPnL !== 0) {
+        // CRITICAL: Validate that the market has been running for a reasonable amount of time
+        // This prevents capturing PnL for markets that "just started" but got misclassified as expired
+        // For 15-min markets: must have been running for at least 10 minutes
+        // For 1-hour markets: must have been running for at least 30 minutes
+        const is15MinMarket = market.marketName.includes('15') ||
+          market.marketName.match(/:\d{2}(AM|PM)\s*-\s*\d+:\d{2}(AM|PM)/i);
+        const minRuntime = is15MinMarket ? 10 * 60 * 1000 : 30 * 60 * 1000; // 10 min or 30 min
+
+        // Calculate how long the market has been expired
+        // If it just expired (within last 5 minutes), the market likely ran properly
+        // If endDate is in the distant past (> 1 hour ago), skip it as stale data
+        const timeExpired = market.endDate ? now - market.endDate : 0;
+        const maxStaleTime = 60 * 60 * 1000; // 1 hour max
+
+        if (timeExpired > maxStaleTime) {
+          // Skip stale expired markets
+          continue;
+        }
+
         // Determine outcome based on final prices
+        // CRITICAL: Only use settlement prices (1.0/0.0), not market prices
         let outcome: 'UP' | 'DOWN' = 'UP';
         if (market.priceDown > market.priceUp) {
           outcome = 'DOWN';
@@ -309,7 +330,13 @@ export class ExternalWalletTracker {
           pnlPercent: market.totalPnLPercent || 0,
           outcome,
           timestamp: market.endDate || Date.now(),
-          marketType: market.marketName.includes('15') ? '15m' : '1h',
+          marketType: is15MinMarket ? '15m' : '1h',
+          // Include shares and prices for proper display
+          sharesUp: market.sharesUp,
+          sharesDown: market.sharesDown,
+          priceUp: market.priceUp,
+          priceDown: market.priceDown,
+          conditionId: market.marketKey,
         });
       }
     }
