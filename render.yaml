@@ -1,0 +1,21 @@
+services:
+  - type: worker
+    name: betabot
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PAPER_MODE
+        value: true
+      - key: ENABLE_WEB_DASHBOARD
+        value: false
+      - key: EXTERNAL_WEBAPP_ENABLED
+        value: true
+      - key: EXTERNAL_WEBAPP_URL
+        sync: false
+      - key: EXTERNAL_WEBAPP_API_KEY
+        sync: false
+      - key: PAPER_BALANCE
+        value: 10000

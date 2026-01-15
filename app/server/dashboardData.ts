@@ -552,6 +552,7 @@ export class DashboardDataCollector {
       data: {
         mode,
         currentMarkets: currentMarkets.slice(0, 4),
+        allCurrentMarkets: currentMarkets, // Full list for external webapp
         upcomingMarkets: Array.from(upcomingByCategory.values()).slice(0, 4),
         portfolio,
         pnlHistory,

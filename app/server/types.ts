@@ -163,6 +163,7 @@ export interface DashboardUpdate {
   data: {
     mode: 'PAPER' | 'WATCH' | 'TRADING';
     currentMarkets: MarketData[];
+    allCurrentMarkets?: MarketData[];         // Full list for external webapp
     upcomingMarkets: MarketData[];
     portfolio: PortfolioSummary;
     pnlHistory: PnLHistoryEntry[];           // Main bot history (backwards compat)

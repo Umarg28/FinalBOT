@@ -10,6 +10,7 @@ import * as path from 'path';
 import { dashboardDataCollector } from './dashboardData';
 import { ClientMessage, ExternalBotData, BotSummary } from './types';
 import { externalWalletTracker } from './externalWalletTracker';
+import ENV from '../../src/config/env';
 
 // Simple API key for external bot connections
 // Set via DASHBOARD_API_KEY env var or use default
@@ -66,12 +67,46 @@ export class AppServer {
    * Start the server
    */
   start(): void {
-    this.httpServer.listen(this.port, () => {
+    this.tryListen(this.port);
+  }
+
+  /**
+   * Try to listen on a port, automatically try next port if in use
+   */
+  private tryListen(port: number, maxRetries: number = 10): void {
+    const server = this.httpServer;
+
+    const onError = (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE' && maxRetries > 0) {
+        console.log(`[APP] Port ${port} in use, trying ${port + 1}...`);
+        server.removeListener('error', onError);
+        this.tryListen(port + 1, maxRetries - 1);
+      } else {
+        console.error(`[APP] Failed to start server: ${err.message}`);
+      }
+    };
+
+    server.once('error', onError);
+
+    server.listen(port, () => {
+      this.port = port; // Update to actual port
       console.log(`[APP] Dashboard available at http://localhost:${this.port}`);
       console.log(`[APP] External bots can POST to http://localhost:${this.port}/api/bot`);
       console.log(`[APP] API Key: ${API_KEY}`);
-    });
 
+      // Log external webapp forwarding status
+      if (ENV.EXTERNAL_WEBAPP_ENABLED && ENV.EXTERNAL_WEBAPP_URL) {
+        console.log(`[APP] External webapp forwarding ENABLED -> ${ENV.EXTERNAL_WEBAPP_URL}`);
+      }
+
+      this.onServerStarted();
+    });
+  }
+
+  /**
+   * Called after server successfully starts listening
+   */
+  private onServerStarted(): void {
     // Start tracking gabagool22 wallet for balance injection (not shown as separate bot)
     const gabagoolWallet = '0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d';
     externalWalletTracker.startTracking([gabagoolWallet], 5000); // Update every 5 seconds
@@ -173,6 +208,12 @@ export class AppServer {
 
     if (filePath === '/api/bots' && req.method === 'GET') {
       this.handleGetBots(res);
+      return;
+    }
+
+    // Handle reset request from external webapp
+    if (filePath === '/api/reset' && req.method === 'POST') {
+      this.handleResetRequest(req, res);
       return;
     }
 
@@ -295,6 +336,55 @@ export class AppServer {
       'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify({ bots }));
+  }
+
+  /**
+   * Handle reset request from external webapp
+   */
+  private handleResetRequest(req: IncomingMessage, res: ServerResponse): void {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const target = data.target;
+
+        if (!['main', 'external', 'all'].includes(target)) {
+          res.writeHead(400, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({ error: 'Invalid reset target' }));
+          return;
+        }
+
+        console.log(`[APP] Reset requested from external webapp: ${target}`);
+
+        // Add to pending resets and trigger callback
+        this.pendingResets.add(target);
+        this.broadcastResetStatus();
+
+        // Trigger reset callback if registered
+        if (this.onResetCallback) {
+          this.onResetCallback(target);
+        }
+
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({ success: true, message: `Reset triggered for ${target}` }));
+      } catch (e) {
+        res.writeHead(400, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
   }
 
   /**
@@ -453,21 +543,180 @@ export class AppServer {
    * Broadcast dashboard update to all connected clients
    */
   private async broadcast(): Promise<void> {
-    if (this.clients.size === 0) return;
-
     try {
       const update = await dashboardDataCollector.getDashboardUpdate();
       const message = JSON.stringify(update);
 
-      for (const client of this.clients) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(message);
+      // Send to local WebSocket clients
+      if (this.clients.size > 0) {
+        for (const client of this.clients) {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(message);
+          }
         }
+      }
+
+      // Forward to external webapp if enabled
+      if (ENV.EXTERNAL_WEBAPP_ENABLED && ENV.EXTERNAL_WEBAPP_URL) {
+        this.forwardToExternalWebapp(update);
       }
     } catch (err) {
       console.error('[APP] Error broadcasting update:', err);
     }
   }
+
+  /**
+   * Forward dashboard data to external webapp
+   * Transforms BETABOT data format to WEBAPP expected format
+   */
+  private async forwardToExternalWebapp(update: any): Promise<void> {
+    try {
+      const data = update.data || {};
+      const portfolio = data.portfolio || {};
+      const pnlHistory = data.pnlHistory || [];
+      // Use allCurrentMarkets (full list) instead of sliced currentMarkets
+      const allMarkets = data.allCurrentMarkets || data.currentMarkets || [];
+      // Get upcoming markets
+      const upcomingMarketsRaw = data.upcomingMarkets || [];
+
+      const now = Date.now();
+
+      // Get portfolio values with correct field names
+      const totalInvested = portfolio.totalInvested ?? portfolio.totalCostBasis ?? portfolio.invested ?? 0;
+      const totalValue = portfolio.totalValue ?? portfolio.value ?? totalInvested;
+      const totalPnL = portfolio.totalPnL ?? portfolio.pnl ?? (totalValue - totalInvested);
+      const totalPnLPercent = portfolio.totalPnLPercent ?? portfolio.pnlPercent ?? (totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0);
+
+      // Helper to map market data
+      const mapMarket = (m: any) => ({
+        marketKey: m.marketKey || m.conditionId || m.marketName,
+        marketName: m.marketName || 'Unknown Market',
+        category: m.category || '',
+        endDate: m.endDate || null,
+        timeRemaining: m.timeRemaining || 'Live',
+        isExpired: m.isExpired || false,
+        priceUp: m.priceUp ?? m.currentPriceUp ?? null,
+        priceDown: m.priceDown ?? m.currentPriceDown ?? null,
+        sharesUp: m.sharesUp ?? 0,
+        sharesDown: m.sharesDown ?? 0,
+        investedUp: m.investedUp ?? m.totalCostUp ?? 0,
+        investedDown: m.investedDown ?? m.totalCostDown ?? 0,
+        currentValueUp: m.currentValueUp ?? ((m.sharesUp ?? 0) * (m.priceUp ?? m.currentPriceUp ?? 0)),
+        currentValueDown: m.currentValueDown ?? ((m.sharesDown ?? 0) * (m.priceDown ?? m.currentPriceDown ?? 0)),
+        pnlUp: m.pnlUp ?? 0,
+        pnlDown: m.pnlDown ?? 0,
+        pnlUpPercent: m.pnlUpPercent ?? 0,
+        pnlDownPercent: m.pnlDownPercent ?? 0,
+        totalPnL: m.totalPnL ?? 0,
+        totalPnLPercent: m.totalPnLPercent ?? 0,
+        tradesUp: m.tradesUp ?? 0,
+        tradesDown: m.tradesDown ?? 0,
+        upPercent: m.upPercent ?? 50,
+        downPercent: m.downPercent ?? 50,
+      });
+
+      // Build marketSummaries from current markets
+      const marketSummaries = allMarkets.map(mapMarket);
+
+      // Build upcomingMarkets
+      const upcomingMarkets = upcomingMarketsRaw.map(mapMarket);
+
+      // Build payload in WEBAPP expected format
+      const payload = {
+        botId: 'main',
+        reason: 'heartbeat',
+        runtimeMode: data.mode === 'PAPER' ? 'TRADING' : (data.mode || 'TRADING'),
+
+        payload: {
+          botName: 'BETABOT',
+          updatedAt: now,
+
+          myPortfolio: {
+            wallet: process.env.USER_ADDRESS || '0x0',
+            openPositions: allMarkets.length,
+            investedValue: totalInvested,
+            currentValue: totalValue,
+            availableCash: portfolio.balance ?? 0,
+            overallPnl: totalPnLPercent,
+            totalPnL: totalPnL,
+            totalPnLPercent: totalPnLPercent,
+            totalTrades: portfolio.totalTrades ?? pnlHistory.length,
+            pnl5m: portfolio.pnl5m ?? 0,
+            pnl5mPercent: portfolio.pnl5mPercent ?? 0,
+            trades5m: portfolio.trades5m ?? 0,
+            pnl15m: portfolio.pnl15m ?? 0,
+            pnl15mPercent: portfolio.pnl15mPercent ?? 0,
+            trades15m: portfolio.trades15m ?? 0,
+            pnl1h: portfolio.pnl1h ?? 0,
+            pnl1hPercent: portfolio.pnl1hPercent ?? 0,
+            trades1h: portfolio.trades1h ?? 0,
+            updatedAt: now,
+          },
+
+          // Include marketSummaries for current markets display
+          marketSummaries,
+
+          // Include upcoming markets
+          upcomingMarkets,
+
+          traders: [
+            { address: process.env.USER_ADDRESS || '0x0', notes: 'main bot' }
+          ],
+
+          // PnL history for resolved markets - this populates the History tab
+          pnlHistory: pnlHistory.map((entry: any) => ({
+            marketName: entry.marketName || 'Unknown Market',
+            conditionId: entry.conditionId || '',
+            totalPnl: entry.totalPnl ?? entry.totalPnL ?? entry.pnl ?? 0,
+            pnlPercent: entry.pnlPercent ?? 0,
+            priceUp: entry.priceUp ?? entry.exitPriceUp ?? 0,
+            priceDown: entry.priceDown ?? entry.exitPriceDown ?? 0,
+            sharesUp: entry.sharesUp ?? 0,
+            sharesDown: entry.sharesDown ?? 0,
+            timestamp: entry.timestamp ?? entry.exitTime ?? now,
+            outcome: entry.outcome ?? (entry.won === true ? 'WIN' : entry.won === false ? 'LOSS' : 'UNKNOWN'),
+            marketType: entry.marketType ?? (entry.marketName?.includes('15m') || entry.marketName?.includes('15-min') ? '15m' : '1h'),
+          })),
+
+          trades: pnlHistory.slice(-20).map((trade: any) => ({
+            trader: process.env.USER_ADDRESS || '0x0',
+            action: trade.side || 'BUY',
+            asset: trade.marketName || trade.conditionId || 'Unknown',
+            side: trade.side || 'BUY',
+            amount: `$${(trade.invested || 0).toFixed(2)}`,
+            price: trade.entryPrice || 0,
+            market: `https://polymarket.com/event/${trade.conditionId || ''}`,
+            tx: '',
+            timestamp: trade.timestamp || trade.exitTime || now,
+          })),
+
+          executions: [],
+          health: {},
+        },
+      };
+
+      const response = await fetch(ENV.EXTERNAL_WEBAPP_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(ENV.EXTERNAL_WEBAPP_API_KEY && { 'X-API-Key': ENV.EXTERNAL_WEBAPP_API_KEY }),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        console.error(`[APP] External webapp error: ${response.status} ${response.statusText}`);
+      }
+    } catch (err: any) {
+      // Log error but don't spam - only log occasionally
+      if (!this.lastExternalWebappError || Date.now() - this.lastExternalWebappError > 30000) {
+        console.error(`[APP] Failed to forward to external webapp: ${err.message}`);
+        this.lastExternalWebappError = Date.now();
+      }
+    }
+  }
+
+  private lastExternalWebappError: number = 0;
 
   /**
    * Send update to a specific client

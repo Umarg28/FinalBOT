@@ -119,6 +119,11 @@ export const ENV = {
   ENABLE_WEB_DASHBOARD: getEnvVarBoolean("ENABLE_WEB_DASHBOARD", false), // Enable web dashboard server
   WEB_DASHBOARD_PORT: getEnvVarNumber("WEB_DASHBOARD_PORT", 3000), // Port for web dashboard
 
+  // External webapp forwarding (send data to another webapp)
+  EXTERNAL_WEBAPP_URL: getEnvVar("EXTERNAL_WEBAPP_URL", false), // e.g., "http://localhost:4000/api/data"
+  EXTERNAL_WEBAPP_API_KEY: getEnvVar("EXTERNAL_WEBAPP_API_KEY", false), // API key for external webapp
+  EXTERNAL_WEBAPP_ENABLED: getEnvVarBoolean("EXTERNAL_WEBAPP_ENABLED", false), // Enable forwarding to external webapp
+
   // External wallet tracking (comma-separated list of wallet addresses)
   EXTERNAL_WALLETS: getEnvVar("EXTERNAL_WALLETS", false), // e.g., "0x123...,0x456..."
 };
