@@ -10,6 +10,7 @@ import * as path from 'path';
 import { dashboardDataCollector } from './dashboardData';
 import { ClientMessage, ExternalBotData, BotSummary } from './types';
 import { externalWalletTracker } from './externalWalletTracker';
+import { botSpawner } from './botSpawner';
 import ENV from '../../src/config/env';
 
 // Simple API key for external bot connections
@@ -59,7 +60,16 @@ export class AppServer {
     });
 
     // Create WebSocket server attached to HTTP server
-    this.wss = new WebSocketServer({ server: this.httpServer });
+    // noServer: true initially, we'll attach after port is confirmed
+    this.wss = new WebSocketServer({ noServer: true });
+
+    // Handle HTTP upgrade requests for WebSocket
+    this.httpServer.on('upgrade', (request, socket, head) => {
+      this.wss.handleUpgrade(request, socket, head, (ws) => {
+        this.wss.emit('connection', ws, request);
+      });
+    });
+
     this.setupWebSocket();
   }
 
@@ -114,6 +124,9 @@ export class AppServer {
 
     // Connect external bots getter to data collector (injects wallet balance into gabagool22)
     dashboardDataCollector.setExternalBotsGetter(() => this.getMergedExternalBots());
+
+    // Start polling webapp for bot commands (create, stop, delete)
+    botSpawner.startPolling(5000); // Check every 5 seconds
 
     // Start broadcasting updates every 1.5 seconds
     this.startBroadcasting();
@@ -214,6 +227,36 @@ export class AppServer {
     // Handle reset request from external webapp
     if (filePath === '/api/reset' && req.method === 'POST') {
       this.handleResetRequest(req, res);
+      return;
+    }
+
+    // Handle create bot request from external webapp
+    if (filePath === '/api/create-bot' && req.method === 'POST') {
+      this.handleCreateBot(req, res);
+      return;
+    }
+
+    // Handle get config template request
+    if (filePath === '/api/config-template' && req.method === 'GET') {
+      this.handleGetConfigTemplate(res);
+      return;
+    }
+
+    // Handle stop bot request
+    if (filePath === '/api/stop-bot' && req.method === 'POST') {
+      this.handleStopBot(req, res);
+      return;
+    }
+
+    // Handle delete bot request (stop + remove files)
+    if (filePath === '/api/delete-bot' && req.method === 'POST') {
+      this.handleDeleteBot(req, res);
+      return;
+    }
+
+    // Handle get spawned bots list
+    if (filePath === '/api/spawned-bots' && req.method === 'GET') {
+      this.handleGetSpawnedBots(res);
       return;
     }
 
@@ -392,6 +435,180 @@ export class AppServer {
    */
   getExternalBots(): Map<string, { data: ExternalBotData; lastUpdate: number }> {
     return this.externalBots;
+  }
+
+  /**
+   * Handle create bot request - receives YAML config and spawns a new bot
+   */
+  private handleCreateBot(req: IncomingMessage, res: ServerResponse): void {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const yamlConfig = data.config;
+        const customName = data.name;
+
+        if (!yamlConfig) {
+          res.writeHead(400, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({ error: 'Missing config in request body' }));
+          return;
+        }
+
+        console.log(`[APP] Create bot request received${customName ? ` (name: ${customName})` : ''}`);
+
+        // Create the bot
+        const result = botSpawner.createBot(yamlConfig, customName);
+
+        if (result.success) {
+          console.log(`[APP] Bot created: ${result.botName} (ID: ${result.botId})`);
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({
+            success: true,
+            botId: result.botId,
+            botName: result.botName,
+            message: `Bot ${result.botName} created and started`,
+          }));
+        } else {
+          res.writeHead(500, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({
+            success: false,
+            error: result.error || 'Failed to create bot',
+          }));
+        }
+      } catch (e: any) {
+        res.writeHead(400, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({ error: 'Invalid JSON: ' + e.message }));
+      }
+    });
+  }
+
+  /**
+   * Handle get config template request
+   */
+  private handleGetConfigTemplate(res: ServerResponse): void {
+    const template = botSpawner.getConfigTemplate();
+    res.writeHead(200, {
+      'Content-Type': 'text/plain',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(template);
+  }
+
+  /**
+   * Handle stop bot request
+   */
+  private handleStopBot(req: IncomingMessage, res: ServerResponse): void {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const botId = data.botId;
+
+        if (!botId) {
+          res.writeHead(400, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({ error: 'Missing botId' }));
+          return;
+        }
+
+        const stopped = botSpawner.stopBot(botId);
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({
+          success: stopped,
+          message: stopped ? `Bot ${botId} stopped` : `Bot ${botId} not found or already stopped`,
+        }));
+      } catch (e) {
+        res.writeHead(400, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+  }
+
+  /**
+   * Handle delete bot request (stop + remove config + remove logs)
+   */
+  private handleDeleteBot(req: IncomingMessage, res: ServerResponse): void {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const botId = data.botId;
+
+        if (!botId) {
+          res.writeHead(400, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({ error: 'Missing botId' }));
+          return;
+        }
+
+        console.log(`[APP] Delete bot request received for botId: ${botId}`);
+
+        const result = botSpawner.deleteBot(botId, true);
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({
+          success: result.success,
+          deletedFiles: result.deletedFiles,
+          message: result.success
+            ? `Bot ${botId} deleted (${result.deletedFiles.length} files removed)`
+            : `Bot ${botId} not found`,
+        }));
+      } catch (e) {
+        res.writeHead(400, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+  }
+
+  /**
+   * Handle get spawned bots list
+   */
+  private handleGetSpawnedBots(res: ServerResponse): void {
+    const bots = botSpawner.getSpawnedBots();
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(JSON.stringify({ bots }));
   }
 
   /**
@@ -622,13 +839,17 @@ export class AppServer {
       const upcomingMarkets = upcomingMarketsRaw.map(mapMarket);
 
       // Build payload in WEBAPP expected format
+      // Use BOT_ID and BOT_NAME from env for multi-bot support
+      const botId = ENV.BOT_ID || process.env.BOT_ID || 'main';
+      const botName = ENV.BOT_NAME || process.env.BOT_NAME || 'BETABOT';
+
       const payload = {
-        botId: 'main',
+        botId,
         reason: 'heartbeat',
         runtimeMode: data.mode === 'PAPER' ? 'TRADING' : (data.mode || 'TRADING'),
 
         payload: {
-          botName: 'BETABOT',
+          botName,
           updatedAt: now,
 
           myPortfolio: {
@@ -692,6 +913,20 @@ export class AppServer {
 
           executions: [],
           health: {},
+
+          // Config template for creating new bots from webapp
+          configTemplate: botSpawner.getConfigTemplate(),
+
+          // List of spawned bots and their status
+          spawnedBots: botSpawner.getSpawnedBots(),
+
+          // API endpoints for bot management (relative to BETABOT URL)
+          botManagementApi: {
+            createBot: '/api/create-bot',
+            stopBot: '/api/stop-bot',
+            configTemplate: '/api/config-template',
+            spawnedBots: '/api/spawned-bots',
+          },
         },
       };
 
