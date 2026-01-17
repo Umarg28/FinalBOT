@@ -20,36 +20,36 @@ target_yes_ratio: 0.5
 # Example: 0.5 = $4000 YES / $4000 NO (balanced)
 # Example: 0.6 = $4800 YES / $3200 NO (slightly bullish)
 
-max_skew_ratio: 0.20
+max_skew_ratio: 0.35
 # Maximum allowed lean away from target (between 0 and 1)
 # Limits how much you can over-commit to one side
-# Example: 0.20 with target_yes_ratio=0.5 means max YES=0.70, min YES=0.30
+# Example: 0.35 with target_yes_ratio=0.5 means max YES=0.85, min YES=0.15
 
 # ----------------------------------------------------------------------------
 # 2. REBALANCE TRIGGER (when to trade)
 # ----------------------------------------------------------------------------
-rebalance_band: 0.005
+rebalance_band: 0.01
 # How far inventory can drift from target before rebalancing (e.g. 0.02-0.10)
 # Bigger band = fewer trades, slower response
-# Example: 0.05 with target_yes_ratio=0.5 means rebalance when YES ratio < 0.45 or > 0.55
+# Example: 0.01 = less churn, only act on meaningful deviations
 
-price_move_threshold: 0.002
+price_move_threshold: 0.005
 # Only rebalance if price moved enough since last action (e.g. 0.005-0.02)
 # Prevents tiny "noise" trades when price barely moves
-# Example: 0.01 = only trade if price moved by at least 1%
+# Example: 0.005 = only trade if price moved by at least 0.5%
 
-min_seconds_between_rebalances: 1
+min_seconds_between_rebalances: 2
 # Cooldown between adjustments in seconds (e.g. 1-60)
 # Reduces churn; too high can miss flips
-# Example: 1 = trade every second for fastest price following
+# Example: 2 = trade every 2 seconds to reduce noise
 
 # ----------------------------------------------------------------------------
 # 3. REBALANCE STRENGTH (how much to trade)
 # ----------------------------------------------------------------------------
-rebalance_strength_k: 0.8
+rebalance_strength_k: 0.35
 # How aggressively you push back to target (e.g. 0.1-2.0)
 # Higher = faster snap-back, more churn/slippage risk
-# Example: 0.8 = move 80% of the way to target in one step
+# Example: 0.35 = gentle rebalancing, don't chase 50/50 so hard in trending markets
 
 max_rebalance_step_pct: 0.25
 # Max % of bankroll you'll move in one rebalance step (e.g. 0.05-0.50)
@@ -146,13 +146,13 @@ bell_curve_enabled: true
 # Enable bell curve sizing (true/false)
 # When enabled, trades are largest at 0.50 and smallest at extremes
 
-bell_curve_peak_multiplier: 1.75
+bell_curve_peak_multiplier: 1.50
 # Trade size multiplier at price 0.50 (e.g. 1.25-2.0)
-# Example: 1.75 = 75% bigger trades at balanced prices
+# Example: 1.50 = 50% bigger trades at balanced prices
 
-bell_curve_extreme_multiplier: 0.40
+bell_curve_extreme_multiplier: 0.25
 # Trade size multiplier at price 0.10 or 0.90 (e.g. 0.20-0.50)
-# Example: 0.40 = 60% smaller trades at extreme prices
+# Example: 0.25 = 75% smaller trades at extreme prices (safer)
 
 # ----------------------------------------------------------------------------
 # 4. PRICE / EXECUTION SAFETY (avoid bad fills)
@@ -231,14 +231,27 @@ reduce_only_mode: false
 #
 # Adjust these values to change the table above:
 
-tilt_threshold: 0.59
+tilt_threshold: 0.65
 # When price >= this, boost trades on that side (e.g. 0.55-0.70)
+# 0.65 = winner is actually winning now, start tilting
 
-tilt_boost_multiplier: 1.25
+tilt_boost_multiplier: 1.10
 # How much to boost winning side trades (e.g. 1.1 = 10%, 1.25 = 25%, 1.5 = 50%)
+# 1.10 = small safe boost while debugging
 
-price_stop_threshold: 0.90
+price_stop_threshold: 0.85
 # When price >= this, STOP trading the losing side completely (e.g. 0.85-0.95)
+# 0.85 = once it's basically decided, stop feeding the loser
+
+edge_threshold: 0.58
+# REGIME EDGE gate - blocks losing-side FALLBACK trades when price >= this (e.g. 0.55-0.65)
+# This prevents fallback from buying the loser when price is drifting away from 0.50
+# 0.58 = early trend detection, block losing-side fallback before TREND engages
+
+trend_threshold: 0.65
+# REGIME TREND gate - zeros losing side when price >= this (e.g. 0.60-0.75)
+# SEPARATE from tilt_threshold so you can tune them independently
+# 0.65 = when a clear trend emerges, stop adding to loser (unless in FLIP_RECOVERY)
 
 # ----------------------------------------------------------------------------
 # 6c. LATE ENTRY PROTECTION
@@ -308,8 +321,59 @@ flip_response_multiplier: 1.5
 # Example: 1.5 = use 1.5x normal rebalance strength after flip
 
 post_flip_cooldown_sec: 15
-# Short pause after flipping to avoid overreacting twice (e.g. 0-30)
-# Example: 15 = wait 15 seconds after flip detection before trading again
+# Duration of FLIP_RECOVERY mode in seconds (e.g. 5-30)
+# After this time, bot exits flip recovery and returns to NORMAL mode
+# Example: 15 = stay in flip recovery mode for 15 seconds
+
+# ----------------------------------------------------------------------------
+# 7b. FLIP RECOVERY MODE (state machine: NORMAL → FLIP_RECOVERY → NORMAL)
+# ----------------------------------------------------------------------------
+# When a price flip is detected, the bot enters FLIP_RECOVERY mode with:
+#   1. Tilt trading DISABLED (no boost or suppression)
+#   2. Bell-curve sizing DISABLED (flat sizing)
+#   3. Aggressive rebalancing to reduce overweight side first
+#   4. Only add to new winning side AFTER reducing imbalance
+#   5. Smaller max trade sizes but higher frequency
+#
+# STATE MACHINE:
+# ┌────────────────┬────────────────────────────────────────────────────────────┐
+# │ State          │ Behavior                                                   │
+# ├────────────────┼────────────────────────────────────────────────────────────┤
+# │ NORMAL         │ Normal trading with tilt, bell curve, standard params     │
+# │ FLIP_RECOVERY  │ Aggressive rebalancing, no tilt/bell curve, reduce first  │
+# └────────────────┴────────────────────────────────────────────────────────────┘
+#
+# Transition: NORMAL → FLIP_RECOVERY when price flip detected
+# Transition: FLIP_RECOVERY → NORMAL after post_flip_cooldown_sec
+
+flip_recovery_enabled: true
+# Enable the flip recovery state machine (true/false)
+# When disabled, uses legacy behavior (simple cooldown skip)
+
+flip_recovery_rebalance_strength_k: 1.4
+# Rebalance strength during flip recovery (default normal: 0.8)
+# Higher = more aggressive snap-back to target ratio
+# Example: 1.4 = move 140% of the way to target (overshoots slightly)
+
+flip_recovery_max_rebalance_step_pct: 0.40
+# Max bankroll % per rebalance during flip recovery (default normal: 0.25)
+# Allows larger single trades to correct imbalance faster
+# Example: 0.40 = move up to 40% of bankroll in one step
+
+flip_recovery_rebalance_band: 0.002
+# Tighter rebalance band during flip recovery (default normal: 0.005)
+# Triggers rebalancing on smaller deviations
+# Example: 0.002 = rebalance when ratio deviates by just 0.2%
+
+flip_recovery_max_trade_multiplier: 0.75
+# Reduce max trade size during flip recovery (0.5-1.0)
+# Smaller trades but more frequent for controlled recovery
+# Example: 0.75 = max trade is 75% of normal max
+
+flip_recovery_cooldown_multiplier: 0.5
+# Reduce cooldown during flip recovery (0.25-1.0)
+# Faster trade frequency for quicker recovery
+# Example: 0.5 = cooldown is 50% of normal (trade twice as often)
 
 # ----------------------------------------------------------------------------
 # 8. LOGGING / TUNING HELPERS (so trial & error is easier)

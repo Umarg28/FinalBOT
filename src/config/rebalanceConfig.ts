@@ -63,6 +63,10 @@ export interface RebalanceConfig {
   // Late entry detection (skip markets already in progress)
   late_entry_threshold: number; // Skip if no inventory and price > this (e.g., 0.70 = 70%)
 
+  // Regime gating (separate from tilt for independent tuning)
+  edge_threshold: number;   // EDGE regime gate (blocks losing-side fallback when price >= this)
+  trend_threshold: number;  // TREND regime gate (zeros loser when price >= this)
+
   // Bell curve sizing (maximize middle, minimize extremes)
   bell_curve_enabled: boolean;
   bell_curve_peak_multiplier: number;    // 1.50 at price 0.50
@@ -79,6 +83,14 @@ export interface RebalanceConfig {
   flip_detection_window_sec: number;
   flip_response_multiplier: number;
   post_flip_cooldown_sec: number;
+
+  // Flip Recovery Mode settings (explicit state machine)
+  flip_recovery_enabled: boolean;
+  flip_recovery_rebalance_strength_k: number;      // Aggressive rebalance strength during flip (default: 1.4)
+  flip_recovery_max_rebalance_step_pct: number;    // Higher step size during flip (default: 0.40)
+  flip_recovery_rebalance_band: number;            // Tighter band during flip (default: 0.002)
+  flip_recovery_max_trade_multiplier: number;      // Reduce max trade size (default: 0.75 = 75%)
+  flip_recovery_cooldown_multiplier: number;       // Higher trade frequency (default: 0.5 = 50% cooldown)
 
   // Adaptive position sizing (ML-ready: adjusts based on current PnL)
   adaptive_sizing_enabled: boolean;
@@ -136,6 +148,9 @@ const DEFAULT_CONFIG: RebalanceConfig = {
   tilt_boost_multiplier: 1.25,
   price_stop_threshold: 0.90,
   late_entry_threshold: 0.70, // Skip if no inventory and price > 70%
+  // Regime gating (separate from tilt)
+  edge_threshold: 0.58,   // EDGE regime blocks losing-side fallback when price >= 0.58
+  trend_threshold: 0.65,  // TREND regime zeros loser when price >= 0.65
   // Bell curve sizing (maximize middle, minimize extremes)
   bell_curve_enabled: true,
   bell_curve_peak_multiplier: 1.50,
@@ -149,6 +164,13 @@ const DEFAULT_CONFIG: RebalanceConfig = {
   flip_detection_window_sec: 30,
   flip_response_multiplier: 1.5,
   post_flip_cooldown_sec: 15,
+  // Flip Recovery Mode settings (explicit state machine)
+  flip_recovery_enabled: true,
+  flip_recovery_rebalance_strength_k: 1.4,         // More aggressive rebalancing
+  flip_recovery_max_rebalance_step_pct: 0.40,      // Allow larger rebalance steps
+  flip_recovery_rebalance_band: 0.002,             // Tighter trigger band
+  flip_recovery_max_trade_multiplier: 0.75,        // 75% of normal max trade size
+  flip_recovery_cooldown_multiplier: 0.5,          // 50% of normal cooldown (faster trades)
   // Adaptive position sizing (ML-ready: adjusts based on current PnL)
   adaptive_sizing_enabled: false,
   recovery_multiplier: 1.2, // When losing, increase position size by 20%
