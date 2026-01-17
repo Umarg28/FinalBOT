@@ -1,6 +1,7 @@
 services:
+  # Main bot instance
   - type: worker
-    name: betabot
+    name: betabot-main
     runtime: node
     buildCommand: npm install && npm run build
     startCommand: npm run start
@@ -19,3 +20,36 @@ services:
         sync: false
       - key: PAPER_BALANCE
         value: 10000
+      # Multi-bot config - customize these per instance
+      - key: BOT_ID
+        value: main
+      - key: BOT_NAME
+        value: BETABOT
+      - key: CONFIG_FILE
+        value: inventory-rebalance-config.yaml
+
+  # Example: Second bot with different config (uncomment to use)
+  # - type: worker
+  #   name: betabot-aggressive
+  #   runtime: node
+  #   buildCommand: npm install && npm run build
+  #   startCommand: npm run start
+  #   envVars:
+  #     - key: NODE_ENV
+  #       value: production
+  #     - key: PAPER_MODE
+  #       value: true
+  #     - key: ENABLE_WEB_DASHBOARD
+  #       value: false
+  #     - key: EXTERNAL_WEBAPP_ENABLED
+  #       value: true
+  #     - key: EXTERNAL_WEBAPP_URL
+  #       sync: false
+  #     - key: PAPER_BALANCE
+  #       value: 10000
+  #     - key: BOT_ID
+  #       value: aggressive
+  #     - key: BOT_NAME
+  #       value: BETABOT-Aggressive
+  #     - key: CONFIG_FILE
+  #       value: inventory-rebalance-config-aggressive.yaml

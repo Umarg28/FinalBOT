@@ -168,8 +168,10 @@ export function loadRebalanceConfig(configPath?: string): RebalanceConfig {
     return cachedConfig;
   }
 
+  // Use CONFIG_FILE env var if set, otherwise default
+  const configFileName = process.env.CONFIG_FILE || "inventory-rebalance-config.yaml";
   const configFilePath =
-    configPath || path.join(process.cwd(), "inventory-rebalance-config.yaml");
+    configPath || path.join(process.cwd(), configFileName);
 
   try {
     if (!fs.existsSync(configFilePath)) {
@@ -225,7 +227,8 @@ export function startConfigWatcher(onConfigChange?: (config: RebalanceConfig) =>
     return; // Already watching
   }
 
-  const filePath = configFilePath || path.join(process.cwd(), "inventory-rebalance-config.yaml");
+  const configFileName = process.env.CONFIG_FILE || "inventory-rebalance-config.yaml";
+  const filePath = configFilePath || path.join(process.cwd(), configFileName);
 
   try {
     let debounceTimer: NodeJS.Timeout | null = null;

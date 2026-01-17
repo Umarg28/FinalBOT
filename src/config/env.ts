@@ -124,8 +124,16 @@ export const ENV = {
   EXTERNAL_WEBAPP_API_KEY: getEnvVar("EXTERNAL_WEBAPP_API_KEY", false), // API key for external webapp
   EXTERNAL_WEBAPP_ENABLED: getEnvVarBoolean("EXTERNAL_WEBAPP_ENABLED", false), // Enable forwarding to external webapp
 
+  // Multi-bot configuration
+  BOT_ID: getEnvVar("BOT_ID", false) || "main", // Unique bot ID for multi-bot setups
+  BOT_NAME: getEnvVar("BOT_NAME", false) || "BETABOT", // Display name for this bot
+  CONFIG_FILE: getEnvVar("CONFIG_FILE", false) || "inventory-rebalance-config.yaml", // Config file to use
+
   // External wallet tracking (comma-separated list of wallet addresses)
   EXTERNAL_WALLETS: getEnvVar("EXTERNAL_WALLETS", false), // e.g., "0x123...,0x456..."
+
+  // Quiet mode - suppress terminal output (for multi-bot dashboard)
+  QUIET_MODE: getEnvVarBoolean("QUIET_MODE", false),
 };
 
 export default ENV;

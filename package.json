@@ -9,10 +9,13 @@
     "dev": "ts-node src/index.ts",
     "paper": "cross-env PAPER_MODE=true ts-node src/index.ts",
     "watcher": "cross-env WATCHER_MODE=true PAPER_MODE=true ts-node src/index.ts",
-    "dashboard": "cross-env WATCHER_MODE=true PAPER_MODE=true ts-node src/index.ts",
+    "watcher:dashboard": "cross-env WATCHER_MODE=true PAPER_MODE=true ts-node src/index.ts",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
-    "format": "prettier --write \"src/**/*.ts\""
+    "format": "prettier --write \"src/**/*.ts\"",
+    "start:all": "bash run-all-bots.sh",
+    "multi": "bash run-dashboard.sh",
+    "monitor": "bash monitor-bots.sh"
   },
   "keywords": [
     "polymarket",
