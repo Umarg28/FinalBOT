@@ -196,38 +196,57 @@ reduce_only_mode: false
 # Options: true or false
 
 # ----------------------------------------------------------------------------
-# 6. TILT TRADING (aggressive when one side winning)
+# 6. TILT TRADING & REGIME SYSTEM
 # ----------------------------------------------------------------------------
+#
+# REGIME STATE MACHINE (price thresholds trigger different behaviors):
+#
+# ┌─────────────┬─────────────┬─────────────────────────────────────────────────┐
+# │ Regime      │ Threshold   │ Behavior                                        │
+# ├─────────────┼─────────────┼─────────────────────────────────────────────────┤
+# │ NORMAL      │ < 0.58      │ Trade both sides, no restrictions               │
+# │ EDGE        │ >= 0.58     │ Loser reduced to 25%, clamped to 0.5x winner    │
+# │ TREND       │ >= 0.65     │ Loser ZEROED at source (except FLIP_RECOVERY)   │
+# │ STOP        │ >= 0.85     │ Loser ZEROED unconditionally                    │
+# └─────────────┴─────────────┴─────────────────────────────────────────────────┘
 #
 # FULL BEHAVIOR TABLE (based on current settings):
 #
 # ┌────────────┬────────────┬───────────┬────────────┬─────────────────────────┐
-# │ UP Price   │ DOWN Price │ UP Trade  │ DOWN Trade │ Behavior                │
+# │ UP Price   │ DOWN Price │ UP Trade  │ DOWN Trade │ Regime & Behavior       │
 # ├────────────┼────────────┼───────────┼────────────┼─────────────────────────┤
-# │ 0.05       │ 0.95       │ 0.15x     │ 1.25x      │ DOWN boosted, UP minimal│
-# │ 0.10       │ 0.90       │ 0.15x     │ 1.25x      │ DOWN boosted, UP minimal│
-# │ 0.15       │ 0.85       │ 0.15x     │ 1.25x      │ DOWN boosted, UP minimal│
-# │ 0.20       │ 0.80       │ 0.16x     │ 1.25x      │ DOWN boosted, UP reduced│
-# │ 0.30       │ 0.70       │ 0.27x     │ 1.25x      │ DOWN boosted, UP reduced│
-# │ 0.40       │ 0.60       │ 0.38x     │ 1.25x      │ DOWN boosted, UP reduced│
-# │ 0.41       │ 0.59       │ 0.50x     │ 1.25x      │ Tilt starts (threshold) │
-# │ 0.45       │ 0.55       │ 1.0x      │ 1.0x       │ Normal (no tilt)        │
-# │ 0.50       │ 0.50       │ 1.0x      │ 1.0x       │ Normal (balanced)       │
-# │ 0.55       │ 0.45       │ 1.0x      │ 1.0x       │ Normal (no tilt)        │
-# │ 0.59       │ 0.41       │ 1.25x     │ 0.50x      │ Tilt starts (threshold) │
-# │ 0.60       │ 0.40       │ 1.25x     │ 0.38x      │ UP boosted, DOWN reduced│
-# │ 0.70       │ 0.30       │ 1.25x     │ 0.27x      │ UP boosted, DOWN reduced│
-# │ 0.80       │ 0.20       │ 1.25x     │ 0.16x      │ UP boosted, DOWN reduced│
-# │ 0.85       │ 0.15       │ 1.25x     │ 0.15x      │ UP boosted, DOWN minimal│
-# │ 0.90       │ 0.10       │ 1.25x     │ 0.15x      │ UP boosted, DOWN minimal│
-# │ 0.95       │ 0.05       │ 1.25x     │ 0.15x      │ UP boosted, DOWN minimal│
+# │ 0.05       │ 0.95       │ ZERO      │ 1.0x       │ STOP: UP zeroed         │
+# │ 0.10       │ 0.90       │ ZERO      │ 1.0x       │ STOP: UP zeroed         │
+# │ 0.15       │ 0.85       │ ZERO      │ 1.0x       │ STOP: UP zeroed         │
+# │ 0.20       │ 0.80       │ ZERO      │ 1.10x      │ TREND: UP zeroed, tilt  │
+# │ 0.30       │ 0.70       │ ZERO      │ 1.10x      │ TREND: UP zeroed, tilt  │
+# │ 0.35       │ 0.65       │ ZERO      │ 1.10x      │ TREND: UP zeroed, tilt  │
+# │ 0.40       │ 0.60       │ 0.25x*    │ 1.0x       │ EDGE: UP reduced+clamped│
+# │ 0.42       │ 0.58       │ 0.25x*    │ 1.0x       │ EDGE: UP reduced+clamped│
+# │ 0.45       │ 0.55       │ 1.0x      │ 1.0x       │ NORMAL (no restrictions)│
+# │ 0.50       │ 0.50       │ 1.0x      │ 1.0x       │ NORMAL (balanced)       │
+# │ 0.55       │ 0.45       │ 1.0x      │ 1.0x       │ NORMAL (no restrictions)│
+# │ 0.58       │ 0.42       │ 1.0x      │ 0.25x*     │ EDGE: DOWN reduced+clamp│
+# │ 0.60       │ 0.40       │ 1.0x      │ 0.25x*     │ EDGE: DOWN reduced+clamp│
+# │ 0.65       │ 0.35       │ 1.10x     │ ZERO       │ TREND: DOWN zeroed, tilt│
+# │ 0.70       │ 0.30       │ 1.10x     │ ZERO       │ TREND: DOWN zeroed, tilt│
+# │ 0.80       │ 0.20       │ 1.10x     │ ZERO       │ TREND: DOWN zeroed, tilt│
+# │ 0.85       │ 0.15       │ 1.0x      │ ZERO       │ STOP: DOWN zeroed       │
+# │ 0.90       │ 0.10       │ 1.0x      │ ZERO       │ STOP: DOWN zeroed       │
+# │ 0.95       │ 0.05       │ 1.0x      │ ZERO       │ STOP: DOWN zeroed       │
 # └────────────┴────────────┴───────────┴────────────┴─────────────────────────┘
 #
-# KEY (WATCHER-STYLE - NEVER STOPS ONE SIDE):
-#   tilt_threshold (0.59)      = When tilt behavior starts
-#   tilt_boost_multiplier (1.25x) = How much bigger winning trades are
-#   Losing side: progressively reduced from 0.5x → 0.15x (minimum, never 0)
-#   ALWAYS trades BOTH sides, just heavily favors cheaper side
+# * EDGE clamp: loser is min(25% of normal, 50% of winner exposure)
+#
+# KEY:
+#   edge_threshold (0.58)      = Start reducing loser (25% + 0.5x clamp)
+#   trend_threshold (0.65)     = Zero loser completely (except FLIP_RECOVERY)
+#   price_stop_threshold (0.85)= Zero loser unconditionally (even in FLIP)
+#   tilt_threshold (0.65)      = Boost winner by tilt_boost_multiplier
+#   tilt_boost_multiplier (1.10x) = 10% boost to winning side in TREND
+#
+# NOTE: FLIP_RECOVERY mode bypasses EDGE and TREND (not STOP) to allow
+#       rapid rebalancing after price direction changes.
 #
 # Adjust these values to change the table above:
 
