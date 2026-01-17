@@ -53,6 +53,7 @@ const DEFAULT_CONFIG: RebalanceConfig = {
   tilt_threshold: 0.59,
   tilt_boost_multiplier: 1.25,
   price_stop_threshold: 0.90,
+  late_entry_threshold: 0.70,
   bell_curve_enabled: true,
   bell_curve_peak_multiplier: 1.50,
   bell_curve_extreme_multiplier: 0.30,

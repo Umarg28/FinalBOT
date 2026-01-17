@@ -241,6 +241,18 @@ price_stop_threshold: 0.90
 # When price >= this, STOP trading the losing side completely (e.g. 0.85-0.95)
 
 # ----------------------------------------------------------------------------
+# 6c. LATE ENTRY PROTECTION
+# ----------------------------------------------------------------------------
+# Skip entering a market if prices have already moved significantly from 0.50
+# This prevents entering losing positions when bot starts mid-market
+
+late_entry_threshold: 0.70
+# If no inventory AND max(UP,DOWN) price >= this, skip trading
+# Example: 0.70 = don't enter if one side is already at 70%+
+# Only applies when we have NO inventory in the market
+# If we already have inventory, we keep trading to manage the position
+
+# ----------------------------------------------------------------------------
 # 6b. MARKET CLOSE BEHAVIOR (15-minute markets only)
 # ----------------------------------------------------------------------------
 # Reduce trading activity as market approaches close to avoid getting stuck

@@ -60,6 +60,9 @@ export interface RebalanceConfig {
   tilt_boost_multiplier: number;
   price_stop_threshold: number;
 
+  // Late entry detection (skip markets already in progress)
+  late_entry_threshold: number; // Skip if no inventory and price > this (e.g., 0.70 = 70%)
+
   // Bell curve sizing (maximize middle, minimize extremes)
   bell_curve_enabled: boolean;
   bell_curve_peak_multiplier: number;    // 1.50 at price 0.50
@@ -132,6 +135,7 @@ const DEFAULT_CONFIG: RebalanceConfig = {
   tilt_threshold: 0.59,
   tilt_boost_multiplier: 1.25,
   price_stop_threshold: 0.90,
+  late_entry_threshold: 0.70, // Skip if no inventory and price > 70%
   // Bell curve sizing (maximize middle, minimize extremes)
   bell_curve_enabled: true,
   bell_curve_peak_multiplier: 1.50,

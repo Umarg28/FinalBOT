@@ -232,6 +232,27 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
       return [];
     }
 
+    // LATE ENTRY DETECTION: Skip if entering market too late (prices already moved significantly)
+    // Only applies when we have NO inventory - if we already have inventory, keep trading
+    if (!hasInventory) {
+      const lateEntryThreshold = this.rebalanceConfig.late_entry_threshold || 0.70;
+      const maxPrice = Math.max(yesPrice, noPrice);
+
+      if (maxPrice >= lateEntryThreshold) {
+        // Check how much time is left - for 15m markets, allow late entry if >5 min left
+        const timeLeft = this.getTimeUntilClose(state);
+        const minMinutesForLateEntry = this.is15MinuteMarket(marketType) ? 5 : 20; // 5 min for 15m, 20 min for 1h
+
+        if (timeLeft && timeLeft.minutesLeft < minMinutesForLateEntry) {
+          this.logThrottled(
+            `late_entry_${marketType}`,
+            `[${this.getShortName(marketType)}] LATE ENTRY SKIP: No inventory & price already at ${(maxPrice * 100).toFixed(0)}% (threshold: ${(lateEntryThreshold * 100).toFixed(0)}%) with only ${timeLeft.minutesLeft.toFixed(1)} min left`
+          );
+          return [];
+        }
+      }
+    }
+
     // Calculate YES ratio for inventory tracking
     const yesRatio = hasInventory ? inventory.yesValue / totalInventoryValue : this.rebalanceConfig.target_yes_ratio;
 
