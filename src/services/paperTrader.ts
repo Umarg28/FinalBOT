@@ -50,6 +50,8 @@ export class PaperTrader {
     timestamp: number;
   }> = new Map();
   private pnlHistoryFilePath: string = '';
+  private pnlHistoryDir: string = '';
+  private botSuffix: string = '';
 
   constructor(marketData: MarketDataService, startingBalance?: number) {
     this.marketData = marketData;
@@ -92,15 +94,23 @@ export class PaperTrader {
       }
     }
     const runId = getRunId();
-    this.csvFilePath = path.join(paperDir, `Paper Trades_${runId}.csv`);
+    // Use BOT_ID for separate files per bot instance
+    const botId = process.env.BOT_ID || 'main';
+    const botSuffix = botId === 'main' ? '' : `_${botId}`;
+
+    this.csvFilePath = path.join(paperDir, `Paper Trades${botSuffix}_${runId}.csv`);
     this.csvExporter = new CSVExporter(paperDir);
     this.initializeCsv();
 
-    // Initialize PnL history persistence file (shared across runs)
-    this.pnlHistoryFilePath = path.join(paperDir, 'pnl_history.json');
+    // Initialize PnL history persistence - organized by day
+    // Main file stores all history, daily files store per-day data
+    this.pnlHistoryFilePath = path.join(paperDir, `pnl_history${botSuffix}.json`);
+    this.pnlHistoryDir = paperDir;
+    this.botSuffix = botSuffix;
     this.loadPnLHistory();
 
-    logger.paper(`Paper account initialized with $${this.account.balance} USDC`);
+    const botName = process.env.BOT_NAME || 'BETABOT';
+    logger.paper(`Paper account [${botName}] initialized with $${this.account.balance} USDC`);
   }
 
   private initializeCsv(): void {
@@ -140,21 +150,69 @@ export class PaperTrader {
   }
 
   /**
-   * Load PnL history from persistent JSON file
+   * Get the daily PnL history file path for a given date
+   */
+  private getDailyPnLFilePath(date: Date): string {
+    const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+    return path.join(this.pnlHistoryDir, `pnl_history${this.botSuffix}_${dateStr}.json`);
+  }
+
+  /**
+   * Load PnL history from all sources:
+   * 1. Main history file (legacy/combined)
+   * 2. All daily history files
+   * This ensures no data is lost on bot startup
    */
   private loadPnLHistory(): void {
     try {
+      const allEntries: Map<string, any> = new Map();
+
+      // 1. Load from main history file (legacy support)
       if (fs.existsSync(this.pnlHistoryFilePath)) {
         const data = fs.readFileSync(this.pnlHistoryFilePath, 'utf8');
         const parsed = JSON.parse(data);
-
-        // Convert array back to Map
         if (Array.isArray(parsed)) {
-          this.marketPnLData = new Map(parsed.map(item => [item.conditionId, item]));
-          // Also restore loggedMarkets to prevent duplicates
-          this.loggedMarkets = new Set(parsed.map(item => item.conditionId));
-          logger.info(`Loaded ${this.marketPnLData.size} PnL history entries from disk`);
+          for (const item of parsed) {
+            if (item.conditionId) {
+              allEntries.set(item.conditionId, item);
+            }
+          }
         }
+      }
+
+      // 2. Load from all daily history files (pnl_history_YYYY-MM-DD.json)
+      const files = fs.readdirSync(this.pnlHistoryDir);
+      const dailyFilePattern = new RegExp(`^pnl_history${this.botSuffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_\\d{4}-\\d{2}-\\d{2}\\.json$`);
+
+      for (const file of files) {
+        if (dailyFilePattern.test(file)) {
+          try {
+            const filePath = path.join(this.pnlHistoryDir, file);
+            const data = fs.readFileSync(filePath, 'utf8');
+            const parsed = JSON.parse(data);
+            if (Array.isArray(parsed)) {
+              for (const item of parsed) {
+                if (item.conditionId) {
+                  // Use timestamp to keep the most recent entry if duplicates exist
+                  const existing = allEntries.get(item.conditionId);
+                  if (!existing || (item.timestamp && item.timestamp > (existing.timestamp || 0))) {
+                    allEntries.set(item.conditionId, item);
+                  }
+                }
+              }
+            }
+          } catch (fileError) {
+            logger.warn(`Failed to load daily PnL file ${file}: ${fileError}`);
+          }
+        }
+      }
+
+      // Convert to Map and restore loggedMarkets
+      this.marketPnLData = allEntries;
+      this.loggedMarkets = new Set(allEntries.keys());
+
+      if (allEntries.size > 0) {
+        logger.info(`Loaded ${allEntries.size} PnL history entries from disk (merged from all daily files)`);
       }
     } catch (error) {
       logger.error(`Failed to load PnL history: ${error}`);
@@ -162,15 +220,70 @@ export class PaperTrader {
   }
 
   /**
-   * Save PnL history to persistent JSON file
+   * Save PnL history to persistent JSON files:
+   * 1. Main history file (all entries)
+   * 2. Daily file for today's entries
    */
   private savePnLHistory(): void {
     try {
-      const data = Array.from(this.marketPnLData.values());
-      fs.writeFileSync(this.pnlHistoryFilePath, JSON.stringify(data, null, 2), 'utf8');
+      const allData = Array.from(this.marketPnLData.values());
+
+      // 1. Save all entries to main history file
+      fs.writeFileSync(this.pnlHistoryFilePath, JSON.stringify(allData, null, 2), 'utf8');
+
+      // 2. Save today's entries to daily file
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+      const todayEnd = todayStart + 24 * 60 * 60 * 1000;
+
+      const todayEntries = allData.filter(entry => {
+        const ts = entry.timestamp || 0;
+        return ts >= todayStart && ts < todayEnd;
+      });
+
+      if (todayEntries.length > 0) {
+        const dailyFilePath = this.getDailyPnLFilePath(today);
+        fs.writeFileSync(dailyFilePath, JSON.stringify(todayEntries, null, 2), 'utf8');
+      }
     } catch (error) {
       logger.error(`Failed to save PnL history: ${error}`);
     }
+  }
+
+  /**
+   * Get PnL history for a specific date
+   */
+  getPnLHistoryForDate(date: Date): any[] {
+    const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const dateEnd = dateStart + 24 * 60 * 60 * 1000;
+
+    return Array.from(this.marketPnLData.values()).filter(entry => {
+      const ts = entry.timestamp || 0;
+      return ts >= dateStart && ts < dateEnd;
+    });
+  }
+
+  /**
+   * Get PnL summary by date (organized view)
+   */
+  getPnLSummaryByDate(): Map<string, { entries: any[]; totalPnL: number; count: number }> {
+    const byDate = new Map<string, { entries: any[]; totalPnL: number; count: number }>();
+
+    for (const entry of this.marketPnLData.values()) {
+      const ts = entry.timestamp || Date.now();
+      const dateStr = new Date(ts).toISOString().split('T')[0]; // YYYY-MM-DD
+
+      if (!byDate.has(dateStr)) {
+        byDate.set(dateStr, { entries: [], totalPnL: 0, count: 0 });
+      }
+
+      const dayData = byDate.get(dateStr)!;
+      dayData.entries.push(entry);
+      dayData.totalPnL += entry.totalPnl || 0;
+      dayData.count++;
+    }
+
+    return byDate;
   }
 
   /**
