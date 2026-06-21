@@ -22,6 +22,8 @@ const CONFIG = {
   // Market discovery settings - multiple market types to track
   // Only 15-minute and 1-hour markets exist
   MARKET_SLUG_PREFIXES: [
+    'btc-updown-5m',            // BTC 5-minute
+    'eth-updown-5m',            // ETH 5-minute
     'btc-updown-15m',           // BTC 15-minute
     'eth-updown-15m',           // ETH 15-minute
     'bitcoin-up-or-down',       // BTC 1-hour
@@ -250,6 +252,20 @@ class MarketDiscovery {
       const now = Math.floor(Date.now() / 1000);
 
       // =========================================================================
+      // Fetch 5-minute markets using timestamp-based slug pattern
+      // =========================================================================
+      for (const prefix of ['btc-updown-5m', 'eth-updown-5m']) {
+        for (let offset = -1; offset <= 12; offset++) {
+          const targetTime = now + (offset * 300); // 5 minutes = 300 seconds
+          const roundedTime = Math.floor(targetTime / 300) * 300;
+          const slug = `${prefix}-${roundedTime}`;
+          const marketUrl = `${CONFIG.GAMMA_API_URL}?slug=${slug}`;
+          const markets = await this.fetchMarketsFromUrl(marketUrl);
+          allMarkets.push(...markets);
+        }
+      }
+
+      // =========================================================================
       // Fetch 15-minute markets using timestamp-based slug pattern
       // =========================================================================
       for (const prefix of ['btc-updown-15m', 'eth-updown-15m']) {
@@ -270,18 +286,22 @@ class MarketDiscovery {
       // =========================================================================
       
       // PRIMARY: Use tag_slug query to get all active hourly markets (most reliable)
-      // This returns all active 1-hour markets ordered by endDate
-      const hourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&active=true&closed=false&limit=100&order=endDate&ascending=true`;
+      // Use DESCENDING order so the newest/soonest-ending markets appear first.
+      // This prevents older unsettled markets from filling the limit and hiding current ones.
+      const hourlyUrl = `${CONFIG.GAMMA_API_URL}?tag_slug=up-or-down&active=true&closed=false&limit=20&order=endDate&ascending=false`;
       const hourlyMarkets = await this.fetchMarketsFromUrl(hourlyUrl);
       allMarkets.push(...hourlyMarkets);
 
       // SECONDARY: Use slug_contains queries for each prefix as backup
-      // This ensures we catch markets even if tag query misses them
+      // Use DESCENDING order (newest first) with a small limit so current/upcoming
+      // markets are always within the result window regardless of how many old
+      // unsettled markets exist.
       for (const hourlyPrefix of ['bitcoin-up-or-down', 'ethereum-up-or-down']) {
-        // Try both active=true and without active filter to catch all markets
-        const activeUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=true&closed=false&limit=50&order=endDate&ascending=true`;
-        const inactiveUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=false&closed=false&limit=50&order=endDate&ascending=true`;
-        const allUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&closed=false&limit=50&order=endDate&ascending=true`;
+        // Try both active=true and without active filter to catch markets that may
+        // not be marked active yet (Polymarket sometimes delays activation a few minutes)
+        const activeUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=true&closed=false&limit=10&order=endDate&ascending=false`;
+        const inactiveUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&active=false&closed=false&limit=10&order=endDate&ascending=false`;
+        const allUrl = `${CONFIG.GAMMA_API_URL}?slug_contains=${hourlyPrefix}&closed=false&limit=10&order=endDate&ascending=false`;
         
         const [activeMarkets, inactiveMarkets, allMarketsForPrefix] = await Promise.all([
           this.fetchMarketsFromUrl(activeUrl),
@@ -294,13 +314,13 @@ class MarketDiscovery {
       
       // TERTIARY: Also try date-based slug pattern for current and next hours only (not all 72 hours!)
       // This is a fallback if API queries fail, but we only try a few hours, not all possible hours
-      const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
-                          'july', 'august', 'september', 'october', 'november', 'december'];
+      // IMPORTANT: Actual Polymarket slugs include the year, e.g. "bitcoin-up-or-down-march-15-2026-12pm-et"
       
-      // Calculate current ET time properly
+      // Calculate current ET time properly (including year for slug construction)
       const nowDate = new Date(now * 1000); // Convert seconds to milliseconds
       const etFormatter = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/New_York',
+        year: 'numeric',
         month: 'long',
         day: 'numeric',
         hour: 'numeric',
@@ -309,26 +329,62 @@ class MarketDiscovery {
       const etParts = etFormatter.formatToParts(nowDate);
       const etMonth = etParts.find(p => p.type === 'month')?.value.toLowerCase() || 'january';
       const etDay = parseInt(etParts.find(p => p.type === 'day')?.value || '1', 10);
+      const etYear = etParts.find(p => p.type === 'year')?.value || new Date(now * 1000).getFullYear().toString();
       const etHour12 = parseInt(etParts.find(p => p.type === 'hour')?.value || '12', 10);
       const etAmpm = etParts.find(p => p.type === 'dayPeriod')?.value.toLowerCase() || 'am';
       
-      // Try current hour and next 2 hours only (not all 72 hours!)
+      // Try previous hour, current hour, and next 2 hours (offset -1 to +2)
+      // Previous hour (-1) catches markets that just started a few minutes ago but
+      // whose hour boundary hasn't rolled over in the loop calculation yet.
       for (const prefix of ['bitcoin-up-or-down', 'ethereum-up-or-down']) {
-        for (let hourOffset = 0; hourOffset <= 2; hourOffset++) {
-          let targetHour12 = etHour12 + hourOffset;
-          let targetAmpm = etAmpm;
-          
-          // Handle hour rollover
-          if (targetHour12 > 12) {
-            targetHour12 -= 12;
-            if (targetAmpm === 'am') targetAmpm = 'pm';
-            else targetAmpm = 'am';
+        for (let hourOffset = -1; hourOffset <= 2; hourOffset++) {
+          // Convert 12-hour to 24-hour for arithmetic, then back
+          const ampmOffset = etAmpm === 'pm' ? 12 : 0;
+          const hour24Base = etHour12 === 12 ? (etAmpm === 'am' ? 0 : 12) : etHour12 + ampmOffset;
+          let targetHour24 = ((hour24Base + hourOffset) % 24 + 24) % 24;
+
+          // Calculate target day offset (handle midnight rollover)
+          let targetDay = etDay;
+          let targetMonth = etMonth;
+          let targetYear = etYear;
+
+          // If we rolled back past midnight (hour went negative), adjust day
+          if (hour24Base + hourOffset < 0) {
+            const yesterday = new Date(nowDate);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yParts = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'America/New_York',
+              year: 'numeric', month: 'long', day: 'numeric',
+            }).formatToParts(yesterday);
+            targetDay = parseInt(yParts.find(p => p.type === 'day')?.value || String(etDay), 10);
+            targetMonth = yParts.find(p => p.type === 'month')?.value.toLowerCase() || etMonth;
+            targetYear = yParts.find(p => p.type === 'year')?.value || etYear;
+          } else if (hour24Base + hourOffset >= 24) {
+            const tomorrow = new Date(nowDate);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tParts = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'America/New_York',
+              year: 'numeric', month: 'long', day: 'numeric',
+            }).formatToParts(tomorrow);
+            targetDay = parseInt(tParts.find(p => p.type === 'day')?.value || String(etDay), 10);
+            targetMonth = tParts.find(p => p.type === 'month')?.value.toLowerCase() || etMonth;
+            targetYear = tParts.find(p => p.type === 'year')?.value || etYear;
           }
-          
-          const slug = `${prefix}-${etMonth}-${etDay}-${targetHour12}${targetAmpm}-et`;
-          const marketUrl = `${CONFIG.GAMMA_API_URL}?slug=${slug}`;
-          const markets = await this.fetchMarketsFromUrl(marketUrl);
-          allMarkets.push(...markets);
+
+          // Convert back to 12-hour format
+          const targetAmpm = targetHour24 >= 12 ? 'pm' : 'am';
+          let targetHour12 = targetHour24 % 12;
+          if (targetHour12 === 0) targetHour12 = 12;
+
+          // Try BOTH with-year and without-year slug formats (Polymarket changed format in 2026)
+          const slugWithYear = `${prefix}-${targetMonth}-${targetDay}-${targetYear}-${targetHour12}${targetAmpm}-et`;
+          const slugNoYear = `${prefix}-${targetMonth}-${targetDay}-${targetHour12}${targetAmpm}-et`;
+
+          for (const slug of [slugWithYear, slugNoYear]) {
+            const marketUrl = `${CONFIG.GAMMA_API_URL}?slug=${slug}`;
+            const markets = await this.fetchMarketsFromUrl(marketUrl);
+            allMarkets.push(...markets);
+          }
         }
       }
 
@@ -382,11 +438,14 @@ class MarketDiscovery {
 
           // CRITICAL: Check if this is an hourly market (has specific time) vs daily market (no time)
           // Daily markets like "Bitcoin Up or Down on January 13?" should NOT be treated as 1-hour markets
-          // Hourly markets have patterns like "3PM ET", "12AM ET", "1pm-et" in the title
+          // Hourly markets have patterns like "3PM ET", "12AM ET", "1pm-et", "3:00 PM ET" in the title
           const hasSingleTime =
             /\b\d{1,2}\s*(?:am|pm)\s*ET\b/i.test(title) ||
             /\b\d{1,2}(?:am|pm)\s*ET\b/i.test(title) ||
-            /\b\d{1,2}(?:am|pm)-et\b/i.test(title);
+            /\b\d{1,2}(?:am|pm)-et\b/i.test(title) ||
+            /\b\d{1,2}:\d{2}\s*(?:am|pm)\s*ET\b/i.test(title) ||  // "3:00 PM ET"
+            /\b\d{1,2}\s*:\s*\d{2}\s*(?:am|pm)\s*ET\b/i.test(title) ||  // "3 : 00 PM ET" (with spaces)
+            /\b\d{1,2}(?:am|pm)\b/i.test(title);  // "3PM" or "1pm" (more lenient - just hour)
           const hasTimeRange =
             /\d{1,2}:\d{2}\s*(?:am|pm)\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)/i.test(title);
 
@@ -397,15 +456,22 @@ class MarketDiscovery {
              (titleLower.includes('up or down') && !hasSingleTime));
 
           // If slug matched a 1-hour pattern but this is actually a daily market, skip it
+          // BUT: Be more lenient - if we have a time pattern (even if not perfect match), allow it
           if (marketType && (marketType === 'bitcoin-up-or-down' || marketType === 'ethereum-up-or-down')) {
-            if (isDailyMarket) {
+            // Only skip if it's clearly a daily market (no time at all) AND matches daily patterns
+            // If it has any time indication (hasSingleTime or hasTimeRange), allow it through
+            if (isDailyMarket && !hasSingleTime && !hasTimeRange) {
               log('debug', `[DISCOVER-SKIP] Skipping DAILY market (not hourly): "${title}" (slug=${marketSlug})`);
               continue; // Skip daily markets - we only want hourly markets
+            }
+            // If it has a time pattern but was flagged as daily, log but allow it (might be format issue)
+            if (isDailyMarket && (hasSingleTime || hasTimeRange)) {
+              log('debug', `[DISCOVER-1H] Allowing market with time pattern despite daily flag: "${title}" (slug=${marketSlug})`);
             }
           }
 
           // Fallback: classify 1-hour Up/Down markets from title/question pattern
-          // Example: "Bitcoin Up or Down - January 10, 3PM ET"
+          // Example: "Bitcoin Up or Down - January 10, 3PM ET" or "Bitcoin Up or Down - January 18, 2PM ET"
           if (!marketType) {
             const hasCrypto =
               titleLower.includes('bitcoin') ||
@@ -414,9 +480,16 @@ class MarketDiscovery {
               titleLower.includes('eth');
             const hasUpDownWords = /up or down/i.test(title) || /up\s*\/\s*down/i.test(titleLower);
 
-            if (hasCrypto && hasUpDownWords && hasSingleTime && !hasTimeRange) {
-              const isBTC = titleLower.includes('bitcoin') || titleLower.includes('btc');
-              marketType = isBTC ? 'bitcoin-up-or-down' : 'ethereum-up-or-down';
+            // More lenient: if it has crypto + up/down + any time pattern (single or range), classify as 1-hour
+            // This catches markets even if the time format is slightly different
+            if (hasCrypto && hasUpDownWords && (hasSingleTime || hasTimeRange)) {
+              // Only classify as 1-hour if it's NOT a 15-minute market (which has time ranges like "1:30PM-1:45PM")
+              // 15-minute markets have specific patterns we want to avoid
+              const is15MinPattern = /\d{1,2}:\d{2}\s*(?:am|pm)\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)/i.test(title);
+              if (!is15MinPattern) {
+                const isBTC = titleLower.includes('bitcoin') || titleLower.includes('btc');
+                marketType = isBTC ? 'bitcoin-up-or-down' : 'ethereum-up-or-down';
+              }
             }
           }
 
@@ -462,12 +535,16 @@ class MarketDiscovery {
             //   as soon as the hour window opens.
             let startTime = event.startTime || market.eventStartTime;
 
-            if (!startTime && endDateIso && marketType && marketType.includes('up-or-down')) {
-              // 1-hour Bitcoin/Ethereum Up or Down market
+            if (!startTime && endDateIso && marketType) {
               const endMs = new Date(endDateIso).getTime();
               if (!Number.isNaN(endMs)) {
-                const startMs = endMs - 60 * 60 * 1000; // 1 hour before end
-                startTime = new Date(startMs).toISOString();
+                if (marketType.includes('updown-5m')) {
+                  startTime = new Date(endMs - 5 * 60 * 1000).toISOString();
+                } else if (marketType.includes('updown-15m')) {
+                  startTime = new Date(endMs - 15 * 60 * 1000).toISOString();
+                } else if (marketType.includes('up-or-down')) {
+                  startTime = new Date(endMs - 60 * 60 * 1000).toISOString();
+                }
               }
             }
 
@@ -490,10 +567,15 @@ class MarketDiscovery {
 
             // DEBUG: Log discovery of 1-hour markets with full context so we can verify timing
             if (marketType.includes('up-or-down')) {
+              const startMs = new Date(startTime).getTime();
+              const endMs = new Date(endDateIso).getTime();
+              const durationMs = endMs - startMs;
+              const durationMinutes = durationMs / (60 * 1000);
               log(
-                'debug',
-                `[DISCOVER-1H] type=${marketType} slug=${market.slug || event.slug || ''} ` +
-                  `question="${market.question || event.title || ''}" start=${startTime} end=${endDateIso}`
+                'info',
+                `[DISCOVER-1H] ✅ Found 1-hour market: type=${marketType} slug=${market.slug || event.slug || ''} ` +
+                  `question="${market.question || event.title || ''}" ` +
+                  `start=${startTime} end=${endDateIso} duration=${durationMinutes.toFixed(1)}min`
               );
             }
           }
@@ -518,15 +600,18 @@ class MarketDiscovery {
   async findCurrentMarketsForAllTypes(): Promise<Map<string, MarketInfo>> {
     // Retry up to 3 times if not all markets found
     const maxRetries = 3;
+    let lastAllMarkets: MarketInfo[] = [];
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const allMarkets = await this.fetchAllMarkets();
+      lastAllMarkets = allMarkets; // Store for debug logging at end
       const now = Date.now();
 
       // Debug: Count markets by type
+      const count5m = allMarkets.filter(m => m.market_type.includes('5m') && !m.market_type.includes('15m')).length;
       const count15m = allMarkets.filter(m => m.market_type.includes('15m')).length;
       const count1h = allMarkets.filter(m => m.market_type.includes('up-or-down')).length;
-      log('debug', `fetchAllMarkets returned ${allMarkets.length} total: ${count15m} 15-min, ${count1h} 1-hour`);
+      log('debug', `fetchAllMarkets returned ${allMarkets.length} total: ${count5m} 5-min, ${count15m} 15-min, ${count1h} 1-hour`);
 
       this.currentMarkets.clear();
       this.nextMarkets.clear();
@@ -680,6 +765,22 @@ class MarketDiscovery {
     // If we're missing 1-hour markets, log more details
     if (missing.includes('bitcoin-up-or-down') || missing.includes('ethereum-up-or-down')) {
       log('warn', '1-hour markets not found - they may not be available in the API yet. The bot will continue checking.');
+      
+      // Debug: Check if markets were found but not selected
+      const found1hMarkets = lastAllMarkets.filter(m => 
+        m.market_type === 'bitcoin-up-or-down' || m.market_type === 'ethereum-up-or-down'
+      );
+      if (found1hMarkets.length > 0) {
+        log('warn', `Found ${found1hMarkets.length} 1-hour markets in API but none were selected as current. This may indicate a timing/start-time issue.`);
+        found1hMarkets.slice(0, 3).forEach(m => {
+          const startMs = new Date(m.start_time_iso).getTime();
+          const endMs = new Date(m.end_date_iso).getTime();
+          const now = Date.now();
+          const timeUntilStart = startMs - now;
+          const timeLeft = endMs - now;
+          log('debug', `  - ${m.question} | start=${m.start_time_iso} (${(timeUntilStart/1000/60).toFixed(1)}min until start) | end=${m.end_date_iso} (${(timeLeft/1000/60).toFixed(1)}min left)`);
+        });
+      }
     }
     
     return this.currentMarkets;

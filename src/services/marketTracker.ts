@@ -69,7 +69,7 @@ export class MarketTracker {
     private lastMarketCount = 0;
     private loggedMarkets: Set<string> = new Set(); // Track markets already logged to CSV
     private csvFilePath: string;
-    private maxMarkets = 8; // Maximum number of markets to track at once (4 current + 4 next)
+    private maxMarkets = 12; // Maximum number of markets to track at once (6 current + 6 next for 5m/15m/1h × BTC/ETH)
     private marketsToClose: MarketStats[] = []; // Markets that need to be closed
     private onMarketCloseCallback?: (market: MarketStats) => Promise<void>; // Callback for closing positions
     private onPreCloseCallback?: (market: MarketStats) => Promise<void>; // Callback shortly before market ends
@@ -340,8 +340,8 @@ export class MarketTracker {
     }
 
     /**
-     * Check if market is 15min or hourly (1h) market
-     * Returns true if market matches 15min or hourly pattern
+     * Check if market is 5min, 15min or hourly (1h) market
+     * Returns true if market matches any supported timeframe pattern
      */
     private is15MinOrHourlyMarket(activity: any): boolean {
         const rawTitle =
@@ -355,6 +355,9 @@ export class MarketTracker {
         
         const titleLower = rawTitle.toLowerCase();
         
+        // Check for 5-minute timeframe
+        const has5Min = /\b5\s*min|\b5min|updown.*?5m|5m.*?updown/i.test(rawTitle);
+        
         // Check for 15-minute timeframe
         const has15Min = /\b15\s*min|\b15min|updown.*?15|15.*?updown/i.test(rawTitle);
         
@@ -362,24 +365,19 @@ export class MarketTracker {
         const hasHourly = /\b1\s*h|\b1\s*hour|\bhourly/i.test(rawTitle);
         
         // Check for hourly markets by pattern: "Up or Down" with single time (e.g., "6AM ET") but NO time range
-        // Hourly markets: "Bitcoin Up or Down - December 24, 6AM ET" (single time, no range)
-        // 15min markets: "Bitcoin Up or Down - December 24, 6:00AM-6:15AM ET" (has time range with colon)
-        // Also handle slug format: "bitcoin-up-or-down-december-24-9am-et" (with hyphens)
         const hasUpDown = /(?:up|down).*?(?:up|down)|updown/i.test(titleLower);
         const hasCrypto = /(?:bitcoin|ethereum|btc|eth)/i.test(rawTitle);
-        // Pattern like "6AM ET" or "7PM ET" (with spaces) OR "9am-et" (with hyphens in slug)
         const hasSingleTime = /\d{1,2}\s*(?:am|pm)\s*et/i.test(rawTitle) || /\d{1,2}(?:am|pm)-et/i.test(rawTitle);
-        const hasTimeRange = /\d{1,2}:\d{2}\s*(?:am|pm)\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)/i.test(rawTitle); // Pattern like "6:00AM-6:15AM"
+        const hasTimeRange = /\d{1,2}:\d{2}\s*(?:am|pm)\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)/i.test(rawTitle);
         
-        // If it's an Up/Down crypto market with single time but NO time range, it's hourly
         const isHourlyPattern = hasUpDown && hasCrypto && hasSingleTime && !hasTimeRange;
         
-        return has15Min || hasHourly || isHourlyPattern;
+        return has5Min || has15Min || hasHourly || isHourlyPattern;
     }
 
     /**
-     * Check if market is ETH-UpDown-15 or BTC-UpDown-15 type
-     * Returns normalized key like "ETH-UpDown-15" or "BTC-UpDown-15" if it matches, null otherwise
+     * Check if market is ETH/BTC UpDown type (5m, 15m, or 1h)
+     * Returns normalized key like "BTC-UpDown-5", "ETH-UpDown-15", "BTC-UpDown-1h" etc.
      */
     private getUpDown15MarketType(activity: any): string | null {
         const rawTitle =
@@ -393,40 +391,33 @@ export class MarketTracker {
 
         const titleLower = rawTitle.toLowerCase();
 
-        // Check for 15-minute timeframe:
-        // 1. Explicit "15 min" or "15min" patterns
-        // 2. Slug pattern like "updown-15m-"
-        // 3. Time range pattern like "5:00PM-5:15PM" (15-minute window)
+        // Check for 5-minute timeframe (must check before 15m to avoid false matches)
+        const has5Min = /\b5\s*min|\b5min|updown.*?5m|5m.*?updown/i.test(rawTitle) && !rawTitle.includes('15m');
+
+        // Check for 15-minute timeframe
         const hasExplicit15Min = /\b15\s*min|\b15min|updown.*?15m|15m.*?updown/i.test(rawTitle);
-        // Time range like "X:00PM-X:15PM" or "X:15PM-X:30PM" etc (15-min windows)
         const hasTimeRange = /\d{1,2}:\d{2}\s*(?:am|pm)?\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)?/i.test(rawTitle);
         const has15Min = hasExplicit15Min || hasTimeRange;
 
         // Check for hourly timeframe (explicit)
         const hasHourly = /\b1\s*h|\b1\s*hour|\bhourly/i.test(rawTitle);
 
-        // Check for hourly markets by pattern: "Up or Down" with single time (e.g., "6AM ET") but NO time range
-        // Also handle slug format: "bitcoin-up-or-down-december-24-9am-et" (with hyphens)
+        // Check for hourly markets by pattern
         const hasUpDown = /(?:up|down).*?(?:up|down)|updown/i.test(titleLower);
         const hasCrypto = /(?:bitcoin|ethereum|btc|eth)/i.test(rawTitle);
-        // Pattern like "6AM ET" or "7PM ET" (with spaces) OR "9am-et" (with hyphens in slug)
         const hasSingleTime = /\d{1,2}\s*(?:am|pm)\s*et/i.test(rawTitle) || /\d{1,2}(?:am|pm)-et/i.test(rawTitle);
         const isHourlyPattern = hasUpDown && hasCrypto && hasSingleTime && !hasTimeRange;
 
-        // If it's not 15min, not explicitly hourly, and not hourly by pattern, skip
-        if (!has15Min && !hasHourly && !isHourlyPattern) {
+        if (!has5Min && !has15Min && !hasHourly && !isHourlyPattern) {
             return null;
         }
 
-        // Check for UpDown pattern (up/down/updown) - required for categorization
-        if (hasUpDown || has15Min || hasHourly || isHourlyPattern) {
-            // Check for Bitcoin
+        if (hasUpDown || has5Min || has15Min || hasHourly || isHourlyPattern) {
             if (titleLower.includes('bitcoin') || titleLower.includes('btc') || /^btc/i.test(rawTitle)) {
-                return has15Min ? 'BTC-UpDown-15' : 'BTC-UpDown-1h';
+                return has5Min ? 'BTC-UpDown-5' : has15Min ? 'BTC-UpDown-15' : 'BTC-UpDown-1h';
             }
-            // Check for Ethereum
             if (titleLower.includes('ethereum') || titleLower.includes('eth') || /^eth/i.test(rawTitle)) {
-                return has15Min ? 'ETH-UpDown-15' : 'ETH-UpDown-1h';
+                return has5Min ? 'ETH-UpDown-5' : has15Min ? 'ETH-UpDown-15' : 'ETH-UpDown-1h';
             }
         }
 
@@ -457,15 +448,16 @@ export class MarketTracker {
         
         // Check for Bitcoin
         if (titleLower.includes('bitcoin') || titleLower.includes('btc') || /^btc/i.test(rawTitle)) {
+            const has5Min = /\b5\s*min|\b5min|updown.*?5m|5m.*?updown/i.test(rawTitle) && !rawTitle.includes('15m');
             const hasExplicit15Min = /\b15\s*min|\b15min|updown.*?15m/i.test(rawTitle);
             const hasTimeRange = /\d{1,2}:\d{2}\s*(?:am|pm)?\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)?/i.test(rawTitle);
             const has15Min = hasExplicit15Min || hasTimeRange;
             const hasHourly = /\b1\s*h|\b1\s*hour|\bhourly/i.test(rawTitle);
-            // Also check for hourly pattern: single time without range
             const hasUpDown = /(?:up|down).*?(?:up|down)|updown/i.test(titleLower);
             const hasSingleTime = /\d{1,2}\s*(?:am|pm)\s*et/i.test(rawTitle) || /\d{1,2}(?:am|pm)-et/i.test(rawTitle);
             const isHourlyPattern = hasUpDown && hasSingleTime && !hasTimeRange;
 
+            if (has5Min) return 'BTC-UpDown-5';
             if (has15Min) return 'BTC-UpDown-15';
             if (hasHourly || isHourlyPattern) return 'BTC-UpDown-1h';
             return 'BTC';
@@ -473,15 +465,16 @@ export class MarketTracker {
 
         // Check for Ethereum
         if (titleLower.includes('ethereum') || titleLower.includes('eth') || /^eth/i.test(rawTitle)) {
+            const has5Min = /\b5\s*min|\b5min|updown.*?5m|5m.*?updown/i.test(rawTitle) && !rawTitle.includes('15m');
             const hasExplicit15Min = /\b15\s*min|\b15min|updown.*?15m/i.test(rawTitle);
             const hasTimeRange = /\d{1,2}:\d{2}\s*(?:am|pm)?\s*[-–]\s*\d{1,2}:\d{2}\s*(?:am|pm)?/i.test(rawTitle);
             const has15Min = hasExplicit15Min || hasTimeRange;
             const hasHourly = /\b1\s*h|\b1\s*hour|\bhourly/i.test(rawTitle);
-            // Also check for hourly pattern: single time without range
             const hasUpDown = /(?:up|down).*?(?:up|down)|updown/i.test(titleLower);
             const hasSingleTime = /\d{1,2}\s*(?:am|pm)\s*et/i.test(rawTitle) || /\d{1,2}(?:am|pm)-et/i.test(rawTitle);
             const isHourlyPattern = hasUpDown && hasSingleTime && !hasTimeRange;
 
+            if (has5Min) return 'ETH-UpDown-5';
             if (has15Min) return 'ETH-UpDown-15';
             if (hasHourly || isHourlyPattern) return 'ETH-UpDown-1h';
             return 'ETH';
@@ -521,20 +514,27 @@ export class MarketTracker {
             activity?.asset ||
             '';
 
-        // Check for ETH-UpDown-15, ETH-UpDown-1h, BTC-UpDown-15, or BTC-UpDown-1h markets
+        // Check for ETH/BTC UpDown markets (5m, 15m, 1h)
         const upDownType = this.getUpDown15MarketType(activity);
         if (upDownType) {
-            // For 15min markets, we need to add the timestamp to make unique keys
-            // This ensures each 15-min window has its own market entry and can be closed/logged properly
+            // For 5m/15m markets, add the timestamp to make unique keys per window
+            if (upDownType === 'BTC-UpDown-5' || upDownType === 'ETH-UpDown-5') {
+                const slug = activity?.slug || activity?.eventSlug || '';
+                const timestampMatch = slug.match(/updown-5m-(\d+)/);
+                if (timestampMatch) {
+                    return `${upDownType}-${timestampMatch[1]}`;
+                }
+                if (activity?.conditionId) {
+                    return `${upDownType}-${activity.conditionId.slice(-8)}`;
+                }
+                return upDownType;
+            }
             if (upDownType === 'BTC-UpDown-15' || upDownType === 'ETH-UpDown-15') {
-                // Extract timestamp from slug (e.g., "updown-15m-1736319600" -> "1736319600")
                 const slug = activity?.slug || activity?.eventSlug || '';
                 const timestampMatch = slug.match(/updown-15m-(\d+)/);
                 if (timestampMatch) {
-                    // Return unique key with timestamp: BTC-UpDown-15-1736319600
                     return `${upDownType}-${timestampMatch[1]}`;
                 }
-                // Fallback: use conditionId if available for uniqueness
                 if (activity?.conditionId) {
                     return `${upDownType}-${activity.conditionId.slice(-8)}`;
                 }
@@ -752,9 +752,12 @@ export class MarketTracker {
      * Returns false for 1-hour markets (they use endDate instead)
      */
     private isTimeWindowMarketPassed(marketName: string, marketKey?: string): boolean {
-        // Skip 1-hour markets - they use endDate check instead
-        if (marketKey && this.is1HourMarket(marketKey, marketName)) {
-            return false;
+        // Skip all UpDown markets (5m, 15m, 1h) - they use endDate check instead
+        // The time-window parser can't handle midnight crossings (e.g., "11:45PM-12:00AM")
+        if (marketKey) {
+            if (this.is1HourMarket(marketKey, marketName)) return false;
+            if (marketKey.startsWith('BTC-UpDown-5') || marketKey.startsWith('ETH-UpDown-5')) return false;
+            if (marketKey.startsWith('BTC-UpDown-15') || marketKey.startsWith('ETH-UpDown-15')) return false;
         }
         
         const timeWindow = this.extractTimeWindow(marketName);
@@ -852,14 +855,16 @@ export class MarketTracker {
     private removeOlderUpDown15Markets(newMarketKey: string, newMarketActivity: any): void {
         // Check if this is an UpDown market (15min or hourly)
         // Keys now include timestamp suffix: BTC-UpDown-15-1736319600, ETH-UpDown-1h-9
+        const isUpDown5 = newMarketKey.startsWith('ETH-UpDown-5') || newMarketKey.startsWith('BTC-UpDown-5');
         const isUpDown15 = newMarketKey.startsWith('ETH-UpDown-15') || newMarketKey.startsWith('BTC-UpDown-15');
         const isUpDown1h = newMarketKey.startsWith('ETH-UpDown-1h') || newMarketKey.startsWith('BTC-UpDown-1h');
 
-        if (!isUpDown15 && !isUpDown1h) {
+        if (!isUpDown5 && !isUpDown15 && !isUpDown1h) {
             return;
         }
 
-        // Extract category for comparison (BTC-UpDown-15, BTC-UpDown-1h, etc.)
+        // Extract category for comparison (BTC-UpDown-5, BTC-UpDown-15, BTC-UpDown-1h, etc.)
+        // For 5min: "BTC-UpDown-5-1773626400" -> "BTC-UpDown-5"
         // For 15min: "BTC-UpDown-15-1736319600" -> "BTC-UpDown-15"
         // For hourly: "BTC-UpDown-1h-6" -> "BTC-UpDown-1h"
         const newCategory = newMarketKey.split('-').slice(0, 3).join('-');
@@ -880,7 +885,9 @@ export class MarketTracker {
 
             // Check if this existing market is in the same category
             let existingCategory: string | null = null;
-            if (key.startsWith('ETH-UpDown-15') || key.startsWith('BTC-UpDown-15')) {
+            if (key.startsWith('ETH-UpDown-5-') || key.startsWith('BTC-UpDown-5-')) {
+                existingCategory = key.split('-').slice(0, 3).join('-'); // "BTC-UpDown-5"
+            } else if (key.startsWith('ETH-UpDown-15') || key.startsWith('BTC-UpDown-15')) {
                 existingCategory = key.split('-').slice(0, 3).join('-'); // "BTC-UpDown-15"
             } else if (key.startsWith('ETH-UpDown-1h') || key.startsWith('BTC-UpDown-1h')) {
                 existingCategory = key.split('-').slice(0, 3).join('-'); // "BTC-UpDown-1h"
@@ -1451,15 +1458,18 @@ export class MarketTracker {
         // Same logic as paper mode for consistency
         // ==========================================================================
         const slug = activity.slug || activity.eventSlug || '';
+        const is5MinMarket = /updown-5m-/i.test(slug);
         const is15MinMarket = /updown-15m-|15\s*min/i.test(slug) ||
                               (activity.title && /\d{1,2}:\d{2}\s*(?:am|pm)?\s*[-–]\s*\d{1,2}:\d{2}/i.test(activity.title));
+        const isShortMarket = is5MinMarket || is15MinMarket;
 
-        if (is15MinMarket && slug) {
-            const slugTimestampMatch = slug.match(/updown-15m-(\d+)/);
+        if (isShortMarket && slug) {
+            const slugTimestampMatch = slug.match(/updown-(?:5|15)m-(\d+)/);
             if (slugTimestampMatch) {
                 const now = Date.now();
                 const marketStartTimestamp = parseInt(slugTimestampMatch[1], 10) * 1000;
-                const marketEndTimestamp = marketStartTimestamp + (15 * 60 * 1000);
+                const durationMs = is5MinMarket ? (5 * 60 * 1000) : (15 * 60 * 1000);
+                const marketEndTimestamp = marketStartTimestamp + durationMs;
 
                 // Accept trades if:
                 // 1. Market hasn't ended yet (still active)
@@ -1516,25 +1526,25 @@ export class MarketTracker {
         logger.debug(`[MARKET-TRACKER] Market lookup - marketKey=${marketKey}, found=${!!market}`);
 
         if (!market) {
-            // Calculate endDate - ALWAYS calculate from slug for 15-min markets (API endDate is unreliable)
+            // Calculate endDate - ALWAYS calculate from slug for 5m/15m markets (API endDate is unreliable)
             let endDate: number | undefined;
             const slug = activity.slug || activity.eventSlug || '';
+            const is5MinMarket = slug.includes('updown-5m');
             const is15MinMarket = slug.includes('updown-15m');
 
-            if (is15MinMarket) {
-                // For 15-min markets: ALWAYS calculate from slug timestamp (most reliable)
-                const timestamp15Match = slug.match(/updown-15m-(\d+)/);
-                if (timestamp15Match) {
-                    const startTime = parseInt(timestamp15Match[1], 10) * 1000;
-                    endDate = startTime + (15 * 60 * 1000); // 15 minutes from start
+            if (is5MinMarket || is15MinMarket) {
+                const durationMs = is5MinMarket ? (5 * 60 * 1000) : (15 * 60 * 1000);
+                const maxFutureMs = durationMs + (60 * 1000);
+                const tsMatch = slug.match(/updown-(?:5|15)m-(\d+)/);
+                if (tsMatch) {
+                    const startTime = parseInt(tsMatch[1], 10) * 1000;
+                    endDate = startTime + durationMs;
                     
-                    // Validate: endDate should not be more than 16 minutes in the future
                     const now = Date.now();
                     const timeUntilEnd = endDate - now;
-                    if (timeUntilEnd > 16 * 60 * 1000) {
-                        logger.warn(`⚠️ Calculated endDate for ${marketKey} seems wrong: ${(timeUntilEnd/1000/60).toFixed(1)}min until end (expected <16min). Recalculating...`);
-                        // Recalculate - maybe the timestamp in slug is wrong, use current time + 15min as fallback
-                        endDate = now + (15 * 60 * 1000);
+                    if (timeUntilEnd > maxFutureMs) {
+                        logger.warn(`⚠️ Calculated endDate for ${marketKey} seems wrong: ${(timeUntilEnd/1000/60).toFixed(1)}min until end. Recalculating...`);
+                        endDate = now + durationMs;
                     }
                 }
             } else {
@@ -1601,17 +1611,17 @@ export class MarketTracker {
             // This enables logging for this market
             const marketSlugForNotify = market.marketSlug || '';
             if (marketSlugForNotify) {
+                const is5Min = marketSlugForNotify.includes('updown-5m');
                 const is15Min = marketSlugForNotify.includes('updown-15m');
-                const isHourly = !is15Min && marketKey.includes('-1h');
+                const isHourly = !is5Min && !is15Min && marketKey.includes('-1h');
                 const isBTC = marketKey.includes('BTC');
                 const type: 'BTC' | 'ETH' = isBTC ? 'BTC' : 'ETH';
-                const timeframe: '15m' | '1h' = is15Min ? '15m' : '1h';
+                const timeframe: '15m' | '1h' = is5Min ? '15m' : is15Min ? '15m' : '1h';
 
                 // Extract window start timestamp
                 let windowStart = 0;
-                if (is15Min) {
-                    // 15-min markets: extract from slug
-                    const match = marketSlugForNotify.match(/updown-15m-(\d+)/);
+                if (is5Min || is15Min) {
+                    const match = marketSlugForNotify.match(/updown-(?:5|15)m-(\d+)/);
                     if (match) windowStart = parseInt(match[1], 10);
                 } else if (isHourly && market.endDate) {
                     // Hourly markets: calculate from endDate (endDate - 1 hour = start)
@@ -1625,12 +1635,12 @@ export class MarketTracker {
 
             // Remove previous time window markets when a new one starts (only for same category)
             // Note: This skips 1-hour markets which are handled by closeOldMarketsInCategory
+            const is5MinCategory = category && (category.includes('UpDown-5'));
             const is15MinCategory = category && (category.includes('UpDown-15'));
             const is1HourCategory = category && (category.includes('UpDown-1h'));
             
-            if (is15MinCategory) {
-                // Only process 15-min market switching - don't affect 1-hour markets
-                logger.debug(`[MARKET-TRACKER] Removing previous 15-min time window markets for new market ${marketKey}`);
+            if (is5MinCategory || is15MinCategory) {
+                logger.debug(`[MARKET-TRACKER] Removing previous short-term time window markets for new market ${marketKey}`);
                 const removePrevStartTime = Date.now();
                 const marketsBeforeRemove = this.markets.size;
                 this.removePreviousTimeWindow(market);
@@ -1667,22 +1677,23 @@ export class MarketTracker {
                 return;
             }
         } else {
-            // Update endDate - ALWAYS calculate from slug for 15-min markets (API endDate is unreliable)
+            // Update endDate - ALWAYS calculate from slug for 5m/15m markets (API endDate is unreliable)
             const slugForEndDate = activity.slug || activity.eventSlug || market.marketSlug || '';
+            const is5MinMarket = slugForEndDate.includes('updown-5m');
             const is15MinMarket = slugForEndDate.includes('updown-15m');
 
-            if (is15MinMarket) {
-                // For 15-min markets: ALWAYS recalculate from slug (don't trust API)
-                const timestamp15Match = slugForEndDate.match(/updown-15m-(\d+)/);
-                if (timestamp15Match) {
-                    const startTime = parseInt(timestamp15Match[1], 10) * 1000;
-                    const calculatedEndDate = startTime + (15 * 60 * 1000); // 15 minutes from start
+            if (is5MinMarket || is15MinMarket) {
+                const durationMs = is5MinMarket ? (5 * 60 * 1000) : (15 * 60 * 1000);
+                const maxFutureMs = durationMs + (60 * 1000);
+                const tsMatch = slugForEndDate.match(/updown-(?:5|15)m-(\d+)/);
+                if (tsMatch) {
+                    const startTime = parseInt(tsMatch[1], 10) * 1000;
+                    const calculatedEndDate = startTime + durationMs;
                     
-                    // Validate: endDate should not be more than 16 minutes in the future
                     const now = Date.now();
                     const timeUntilEnd = calculatedEndDate - now;
-                    if (timeUntilEnd > 16 * 60 * 1000) {
-                        logger.warn(`⚠️ Calculated endDate for existing market ${marketKey} seems wrong: ${(timeUntilEnd/1000/60).toFixed(1)}min until end (expected <16min). Keeping existing endDate.`);
+                    if (timeUntilEnd > maxFutureMs) {
+                        logger.warn(`⚠️ Calculated endDate for existing market ${marketKey} seems wrong: ${(timeUntilEnd/1000/60).toFixed(1)}min until end. Keeping existing endDate.`);
                     } else {
                         market.endDate = calculatedEndDate;
                     }
@@ -1954,7 +1965,11 @@ export class MarketTracker {
             let wsMarketType: string | null = null;
 
             // Map dashboard marketKey to WebSocket market type
-            if (marketKey.includes('BTC') && marketKey.includes('-15')) {
+            if (marketKey.startsWith('BTC-UpDown-5')) {
+                wsMarketType = 'btc-updown-5m';
+            } else if (marketKey.startsWith('ETH-UpDown-5')) {
+                wsMarketType = 'eth-updown-5m';
+            } else if (marketKey.includes('BTC') && marketKey.includes('-15')) {
                 wsMarketType = 'btc-updown-15m';
             } else if (marketKey.includes('ETH') && marketKey.includes('-15')) {
                 wsMarketType = 'eth-updown-15m';
@@ -2323,12 +2338,19 @@ export class MarketTracker {
         const nextMarketsFromStreamForFilter = priceStreamLogger.getNextMarkets();
         const nextMarketKeysForFilter = new Set<string>();
         for (const [marketType, info] of nextMarketsFromStreamForFilter.entries()) {
+            const is5MinType = marketType.includes('5m') && !marketType.includes('15m');
             const is15MinType = marketType.includes('15m');
-            const is1HourType = marketType.includes('up-or-down') && !marketType.includes('15m');
-            if (!is15MinType && !is1HourType) continue;
+            const is1HourType = marketType.includes('up-or-down') && !marketType.includes('5m') && !marketType.includes('15m');
+            if (!is5MinType && !is15MinType && !is1HourType) continue;
             const isBTCType = marketType.includes('btc') || marketType.includes('bitcoin');
             let marketKey: string | null = null;
-            if (is15MinType) {
+            if (is5MinType) {
+                const slug = (info.slug || '').toLowerCase();
+                const tsMatch = slug.match(/updown-5m-(\d+)/);
+                const timestamp = tsMatch ? tsMatch[1] : '';
+                const baseKey = isBTCType ? 'BTC-UpDown-5' : 'ETH-UpDown-5';
+                marketKey = timestamp ? `${baseKey}-${timestamp}` : baseKey;
+            } else if (is15MinType) {
                 const slug = (info.slug || '').toLowerCase();
                 const tsMatch = slug.match(/updown-15m-(\d+)/);
                 const timestamp = tsMatch ? tsMatch[1] : '';
@@ -2392,7 +2414,7 @@ export class MarketTracker {
         // Keep the current market (ending soonest) and next market (ending after that)
         // CRITICAL: Only remove markets that have actually ENDED, not just because there are more than 2
         // This ensures upcoming markets stay stable and don't disappear
-        const categories = ['BTC-UpDown-15', 'ETH-UpDown-15', 'BTC-UpDown-1h', 'ETH-UpDown-1h'];
+        const categories = ['BTC-UpDown-5', 'ETH-UpDown-5', 'BTC-UpDown-15', 'ETH-UpDown-15', 'BTC-UpDown-1h', 'ETH-UpDown-1h'];
         for (const category of categories) {
             const marketsInCategory = Array.from(this.markets.entries())
                 .filter(([key]) => key.startsWith(category))
@@ -2627,14 +2649,21 @@ export class MarketTracker {
         // discovers them (so upcoming 1-hour markets appear without delay).
         const nextMarketKeys = new Set<string>();
         for (const [marketType, info] of nextMarketsFromStream.entries()) {
+            const is5MinType = marketType.includes('5m') && !marketType.includes('15m');
             const is15MinType = marketType.includes('15m');
-            const is1HourType = marketType.includes('up-or-down') && !marketType.includes('15m');
-            if (!is15MinType && !is1HourType) continue;
+            const is1HourType = marketType.includes('up-or-down') && !marketType.includes('5m') && !marketType.includes('15m');
+            if (!is5MinType && !is15MinType && !is1HourType) continue;
             
             const isBTCType = marketType.includes('btc') || marketType.includes('bitcoin');
             
             let marketKey: string | null = null;
-            if (is15MinType) {
+            if (is5MinType) {
+                const slug = (info.slug || '').toLowerCase();
+                const tsMatch = slug.match(/updown-5m-(\d+)/);
+                const timestamp = tsMatch ? tsMatch[1] : '';
+                const baseKey = isBTCType ? 'BTC-UpDown-5' : 'ETH-UpDown-5';
+                marketKey = timestamp ? `${baseKey}-${timestamp}` : baseKey;
+            } else if (is15MinType) {
                 const slug = (info.slug || '').toLowerCase();
                 const tsMatch = slug.match(/updown-15m-(\d+)/);
                 const timestamp = tsMatch ? tsMatch[1] : '';
@@ -2698,9 +2727,14 @@ export class MarketTracker {
             // This prevents markets from disappearing when WebSocket data is incomplete
             if (market.endDate && market.endDate > now) {
                 const timeLeft = market.endDate - now;
+                const is5Min = market.marketKey.startsWith('BTC-UpDown-5') || market.marketKey.startsWith('ETH-UpDown-5');
                 const is15Min = market.marketKey.includes('-15');
                 const is1Hour = market.marketKey.includes('-1h-');
 
+                // For 5-min markets: current if <= 5 minutes left
+                if (is5Min && timeLeft <= 5 * 60 * 1000) {
+                    return true;
+                }
                 // For 15-min markets: current if <= 15 minutes left
                 if (is15Min && timeLeft <= 15 * 60 * 1000) {
                     return true;
@@ -2725,15 +2759,17 @@ export class MarketTracker {
                     return true;
                 }
                 
+                const is5MinMarket = market.marketKey.startsWith('BTC-UpDown-5') || market.marketKey.startsWith('ETH-UpDown-5');
                 const is15MinMarket = market.marketKey.includes('-15');
                 const is1HourMarket = market.marketKey.includes('-1h-');
                 
-                // For 15-minute markets: match by timestamp in slug
-                if (is15MinMarket && market.marketSlug && currentMarket.slug) {
+                // For 5m/15m markets: match by timestamp in slug
+                if ((is5MinMarket || is15MinMarket) && market.marketSlug && currentMarket.slug) {
                     const marketSlugLower = market.marketSlug.toLowerCase();
                     const currentSlugLower = currentMarket.slug.toLowerCase();
-                    const marketTsMatch = marketSlugLower.match(/updown-15m-(\d+)/);
-                    const currentTsMatch = currentSlugLower.match(/updown-15m-(\d+)/);
+                    const pattern = is5MinMarket ? /updown-5m-(\d+)/ : /updown-15m-(\d+)/;
+                    const marketTsMatch = marketSlugLower.match(pattern);
+                    const currentTsMatch = currentSlugLower.match(pattern);
                     if (marketTsMatch && currentTsMatch) {
                         const marketTimestamp = marketTsMatch[1];
                         const currentTimestamp = currentTsMatch[1];
@@ -2851,15 +2887,17 @@ export class MarketTracker {
                     return true;
                 }
                 
+                const is5MinMarket = market.marketKey.startsWith('BTC-UpDown-5') || market.marketKey.startsWith('ETH-UpDown-5');
                 const is15MinMarket = market.marketKey.includes('-15');
                 const is1HourMarket = market.marketKey.includes('-1h-');
                 
-                // For 15-minute markets: match by timestamp in slug
-                if (is15MinMarket && market.marketSlug && nextMarket.slug) {
+                // For 5m/15m markets: match by timestamp in slug
+                if ((is5MinMarket || is15MinMarket) && market.marketSlug && nextMarket.slug) {
                     const marketSlugLower = market.marketSlug.toLowerCase();
                     const nextSlugLower = nextMarket.slug.toLowerCase();
-                    const marketTsMatch = marketSlugLower.match(/updown-15m-(\d+)/);
-                    const nextTsMatch = nextSlugLower.match(/updown-15m-(\d+)/);
+                    const pattern = is5MinMarket ? /updown-5m-(\d+)/ : /updown-15m-(\d+)/;
+                    const marketTsMatch = marketSlugLower.match(pattern);
+                    const nextTsMatch = nextSlugLower.match(pattern);
                     if (marketTsMatch && nextTsMatch) {
                         const marketTimestamp = marketTsMatch[1];
                         const nextTimestamp = nextTsMatch[1];
@@ -2871,7 +2909,7 @@ export class MarketTracker {
                     }
                 }
                 
-                // For 1-hour markets: match by hour pattern from slug or question (same logic as marketKey extraction)
+                // For 1-hour markets: match by hour pattern from slug or question
                 if (is1HourMarket) {
                     const marketSlugLower = (market.marketSlug || '').toLowerCase();
                     const nextSlugLower = (nextMarket.slug || '').toLowerCase();
@@ -2942,7 +2980,7 @@ export class MarketTracker {
 
         // STABILITY FIX: Ensure we always have one current market per category (BTC-15m, ETH-15m, BTC-1h, ETH-1h)
         // This prevents markets from disappearing when WebSocket data is temporarily unavailable
-        const currentCategories = ['BTC-UpDown-15', 'ETH-UpDown-15', 'BTC-UpDown-1h', 'ETH-UpDown-1h'];
+        const currentCategories = ['BTC-UpDown-5', 'ETH-UpDown-5', 'BTC-UpDown-15', 'ETH-UpDown-15', 'BTC-UpDown-1h', 'ETH-UpDown-1h'];
         for (const category of currentCategories) {
             const hasCurrent = currentMarkets.some(m => m.marketKey.startsWith(category));
             if (!hasCurrent) {
@@ -2996,7 +3034,7 @@ export class MarketTracker {
         // FALLBACK: Guarantee per-category upcoming markets based purely on endDate ordering.
         // If matching against nextMarketsFromStream fails, this still keeps a stable
         // "current + next" pair per category so the UPCOMING section never disappears.
-        const categoryKeys = ['BTC-UpDown-15', 'ETH-UpDown-15', 'BTC-UpDown-1h', 'ETH-UpDown-1h'];
+        const categoryKeys = ['BTC-UpDown-5', 'ETH-UpDown-5', 'BTC-UpDown-15', 'ETH-UpDown-15', 'BTC-UpDown-1h', 'ETH-UpDown-1h'];
         for (const category of categoryKeys) {
             const categoryMarkets = activeMarkets.filter(m => {
                 if (m.marketKey.startsWith(category)) return true;
@@ -3071,9 +3109,9 @@ export class MarketTracker {
             }
         }
 
-        // Limit to 4 markets each (current and upcoming)
-        const sortedCurrentMarkets = currentMarkets.slice(0, 4);
-        const sortedUpcomingMarkets = Array.from(upcomingByCategory.values()).slice(0, 4);
+        // Limit to 6 markets each (current and upcoming) for 5m + 15m + 1h × BTC/ETH
+        const sortedCurrentMarkets = currentMarkets.slice(0, 6);
+        const sortedUpcomingMarkets = Array.from(upcomingByCategory.values()).slice(0, 6);
 
         // Build entire output as string first to prevent partial prints
         const outputLines: string[] = [];
@@ -3176,6 +3214,11 @@ export class MarketTracker {
         let totalValueAll = 0;
         let totalPnlAll = 0;
         let totalTradesAll = 0;
+        let totalInvested5m = 0;
+        let totalCostBasis5m = 0;
+        let totalValue5m = 0;
+        let totalPnl5m = 0;
+        let totalTrades5m = 0;
         let totalInvested15m = 0;
         let totalCostBasis15m = 0;
         let totalValue15m = 0;
@@ -3194,6 +3237,11 @@ export class MarketTracker {
             totalValueAll: number;
             totalPnlAll: number;
             totalTradesAll: number;
+            totalInvested5m: number;
+            totalCostBasis5m: number;
+            totalValue5m: number;
+            totalPnl5m: number;
+            totalTrades5m: number;
             totalInvested15m: number;
             totalCostBasis15m: number;
             totalValue15m: number;
@@ -3244,19 +3292,24 @@ export class MarketTracker {
 
             totalPnl = pnlUp + pnlDown;
             
-            // Determine market type (15m or 1h)
+            // Determine market type (5m, 15m, or 1h)
+            const is5m = market.marketKey.startsWith('BTC-UpDown-5') || market.marketKey.startsWith('ETH-UpDown-5');
             const is15m = market.marketKey.includes('-15');
             const is1h = market.marketKey.includes('-1h');
             
-            // Accumulate totals (using the totals object passed in)
             totals.totalInvestedAll += totalInvested;
             totals.totalCostBasisAll += totalCostBasis;
             totals.totalValueAll += (currentValueUp + currentValueDown);
             totals.totalPnlAll += totalPnl;
             totals.totalTradesAll += (market.tradesUp + market.tradesDown);
             
-            // Accumulate by market type
-            if (is15m) {
+            if (is5m) {
+                totals.totalInvested5m += totalInvested;
+                totals.totalCostBasis5m += totalCostBasis;
+                totals.totalValue5m += (currentValueUp + currentValueDown);
+                totals.totalPnl5m += totalPnl;
+                totals.totalTrades5m += (market.tradesUp + market.tradesDown);
+            } else if (is15m) {
                 totals.totalInvested15m += totalInvested;
                 totals.totalCostBasis15m += totalCostBasis;
                 totals.totalValue15m += (currentValueUp + currentValueDown);
@@ -3531,6 +3584,11 @@ export class MarketTracker {
             totalValueAll,
             totalPnlAll,
             totalTradesAll,
+            totalInvested5m,
+            totalCostBasis5m,
+            totalValue5m,
+            totalPnl5m,
+            totalTrades5m,
             totalInvested15m,
             totalCostBasis15m,
             totalValue15m,
@@ -3573,6 +3631,14 @@ export class MarketTracker {
         const pnl15mSign = totals.totalPnl15m >= 0 ? '+' : '';
         const pnl15mPercent = totals.totalCostBasis15m > 0 ? ((totals.totalPnl15m / totals.totalCostBasis15m) * 100).toFixed(2) : '0.00';
         const pnl15mColor = totals.totalPnl15m >= 0 ? chalk.green : chalk.red;
+        outputLines.push('');
+        // 5-minute markets summary
+        const pnl5mSign = totals.totalPnl5m >= 0 ? '+' : '';
+        const pnl5mPercent = totals.totalCostBasis5m > 0 ? ((totals.totalPnl5m / totals.totalCostBasis5m) * 100).toFixed(2) : '0.00';
+        const pnl5mColor = totals.totalPnl5m >= 0 ? chalk.green : chalk.red;
+        outputLines.push(chalk.white.bold('  ⚡ 5-Minute Markets (BTC + ETH)'));
+        outputLines.push(chalk.gray(`    Invested: $${totals.totalInvested5m.toFixed(2)} | Value: $${totals.totalValue5m.toFixed(2)} | PnL: `) + pnl5mColor(`${pnl5mSign}$${totals.totalPnl5m.toFixed(2)} (${pnl5mSign}${pnl5mPercent}%)`) + chalk.gray(` | Trades: ${totals.totalTrades5m}`));
+
         outputLines.push('');
         outputLines.push(chalk.white.bold('  ⏱️  15-Minute Markets (BTC + ETH)'));
         outputLines.push(chalk.gray(`    Invested: $${totals.totalInvested15m.toFixed(2)} | Value: $${totals.totalValue15m.toFixed(2)} | PnL: `) + pnl15mColor(`${pnl15mSign}$${totals.totalPnl15m.toFixed(2)} (${pnl15mSign}${pnl15mPercent}%)`) + chalk.gray(` | Trades: ${totals.totalTrades15m}`));
@@ -3631,18 +3697,26 @@ export class MarketTracker {
         const nextHour12 = nextHourDisplay === 0 ? 12 : nextHourDisplay > 12 ? nextHourDisplay - 12 : nextHourDisplay;
         const nextHourStr = `${nextHour12}${nextHourAmPm} ET`;
 
-        // Check what markets we have discovered (use startsWith for 15m since keys now include timestamp)
+        // Check what markets we have discovered
+        const hasBTC5m = Array.from(this.markets.values()).some(m => m.marketKey.startsWith('BTC-UpDown-5') && m.endDate && m.endDate > now);
+        const hasETH5m = Array.from(this.markets.values()).some(m => m.marketKey.startsWith('ETH-UpDown-5') && m.endDate && m.endDate > now);
         const hasBTC15m = Array.from(this.markets.values()).some(m => m.marketKey.startsWith('BTC-UpDown-15') && m.endDate && m.endDate > now);
         const hasETH15m = Array.from(this.markets.values()).some(m => m.marketKey.startsWith('ETH-UpDown-15') && m.endDate && m.endDate > now);
         const hasBTC1h = Array.from(this.markets.values()).some(m => m.marketKey.startsWith('BTC-UpDown-1h') && m.endDate && m.endDate > now);
         const hasETH1h = Array.from(this.markets.values()).some(m => m.marketKey.startsWith('ETH-UpDown-1h') && m.endDate && m.endDate > now);
 
         // Calculate seconds until next windows
+        const secsToNext5m = (5 - (upcomingMinute % 5)) * 60 - new Date(now).getSeconds();
         const secsToNext15m = (15 - (upcomingMinute % 15)) * 60 - new Date(now).getSeconds();
 
         outputLines.push('');
         outputLines.push(chalk.gray('    Current Window: ') + chalk.white(currentWindowStr) + chalk.gray(' ET'));
         outputLines.push('');
+
+        // 5-min status
+        const btc5mStatus = hasBTC5m ? chalk.green('✓ READY') : chalk.yellow('⏳ Waiting...');
+        const eth5mStatus = hasETH5m ? chalk.green('✓ READY') : chalk.yellow('⏳ Waiting...');
+        outputLines.push(chalk.gray('    5-Min:  ') + chalk.cyan('BTC ') + btc5mStatus + chalk.gray(' | ') + chalk.cyan('ETH ') + eth5mStatus + chalk.gray(` | Next in ${secsToNext5m}s`));
 
         // 15-min status
         const btc15mStatus = hasBTC15m ? chalk.green('✓ READY') : chalk.yellow('⏳ Waiting...');
@@ -3760,7 +3834,17 @@ export class MarketTracker {
                 }
             }
 
-            // Pattern match (btc-updown-15m, eth-updown-15m, etc.)
+            // Pattern match (btc-updown-5m, btc-updown-15m, etc.)
+            if (slugLower.includes('btc-updown-5m') && marketSlugLower.includes('btc-updown-5m')) {
+                if (market.currentPriceUp !== undefined && market.currentPriceDown !== undefined) {
+                    return { priceUp: market.currentPriceUp, priceDown: market.currentPriceDown };
+                }
+            }
+            if (slugLower.includes('eth-updown-5m') && marketSlugLower.includes('eth-updown-5m')) {
+                if (market.currentPriceUp !== undefined && market.currentPriceDown !== undefined) {
+                    return { priceUp: market.currentPriceUp, priceDown: market.currentPriceDown };
+                }
+            }
             if (slugLower.includes('btc-updown-15m') && marketSlugLower.includes('btc-updown-15m')) {
                 if (market.currentPriceUp !== undefined && market.currentPriceDown !== undefined) {
                     return { priceUp: market.currentPriceUp, priceDown: market.currentPriceDown };
@@ -3802,6 +3886,8 @@ export class MarketTracker {
 
             // Check for match
             const isMatch = marketSlugLower === slugLower ||
+                (slugLower.includes('btc-updown-5m') && marketSlugLower.includes('btc-updown-5m')) ||
+                (slugLower.includes('eth-updown-5m') && marketSlugLower.includes('eth-updown-5m')) ||
                 (slugLower.includes('btc-updown-15m') && marketSlugLower.includes('btc-updown-15m')) ||
                 (slugLower.includes('eth-updown-15m') && marketSlugLower.includes('eth-updown-15m')) ||
                 (slugLower.includes('btc') && slugLower.includes('1h') && marketSlugLower.includes('btc') && marketSlugLower.includes('1h')) ||
@@ -4180,15 +4266,26 @@ export class MarketTracker {
         this.lastProactiveDiscovery = now;
         logger.debug(`[MARKET-TRACKER] proactivelyDiscover15MinMarkets() starting discovery, current markets=${this.markets.size}`);
 
-        // Calculate current AND next 15-min window starts (like paper mode)
+        // Calculate current AND next 5-min window starts
+        const current5MinStart = Math.floor(now / (5 * 60 * 1000)) * (5 * 60 * 1000);
+        const next5MinStart = current5MinStart + (5 * 60 * 1000);
+        const current5MinTimestamp = Math.floor(current5MinStart / 1000);
+        const next5MinTimestamp = Math.floor(next5MinStart / 1000);
+
+        // Calculate current AND next 15-min window starts
         const current15MinStart = Math.floor(now / (15 * 60 * 1000)) * (15 * 60 * 1000);
         const next15MinStart = current15MinStart + (15 * 60 * 1000);
         const current15MinTimestamp = Math.floor(current15MinStart / 1000);
         const next15MinTimestamp = Math.floor(next15MinStart / 1000);
 
         // Generate expected slugs for BOTH current and next windows
-        // 15-minute markets: btc-updown-15m-{timestamp}
         const slugsToCheck = [
+            // 5-minute markets
+            `btc-updown-5m-${current5MinTimestamp}`,
+            `eth-updown-5m-${current5MinTimestamp}`,
+            `btc-updown-5m-${next5MinTimestamp}`,
+            `eth-updown-5m-${next5MinTimestamp}`,
+            // 15-minute markets
             `btc-updown-15m-${current15MinTimestamp}`,
             `eth-updown-15m-${current15MinTimestamp}`,
             `btc-updown-15m-${next15MinTimestamp}`,
@@ -4266,30 +4363,31 @@ export class MarketTracker {
 
             // Determine market key
             const isBTC = slug.includes('btc') || slug.includes('bitcoin');
+            const is5Min = slug.includes('updown-5m');
             const is15Min = slug.includes('updown-15m');
             const is1Hour = slug.includes('up-or-down');
             let marketKey: string;
 
-            if (is15Min) {
-                // Extract timestamp from slug to create unique key matching extractMarketKey()
+            if (is5Min) {
+                const tsMatch = slug.match(/updown-5m-(\d+)/);
+                const timestamp = tsMatch ? tsMatch[1] : '';
+                const baseKey = isBTC ? 'BTC-UpDown-5' : 'ETH-UpDown-5';
+                marketKey = timestamp ? `${baseKey}-${timestamp}` : baseKey;
+            } else if (is15Min) {
                 const tsMatch = slug.match(/updown-15m-(\d+)/);
                 const timestamp = tsMatch ? tsMatch[1] : '';
                 const baseKey = isBTC ? 'BTC-UpDown-15' : 'ETH-UpDown-15';
                 marketKey = timestamp ? `${baseKey}-${timestamp}` : baseKey;
             } else if (is1Hour) {
-                // Skip direct 1-hour slug discovery here and rely on
-                // priceStreamLogger's MarketDiscovery instead. This avoids
-                // duplicated Gamma API calls which were being rate limited.
                 return null;
             } else {
-                // Unknown format - skip
                 return null;
             }
 
-            // DEBUG: Log which slugs we're probing for 15-minute discovery
-            if (is15Min && slug.includes('updown-15m')) {
+            // DEBUG: Log which slugs we're probing
+            if (is5Min || is15Min) {
                 logger.info(
-                    `[MARKET-TRACKER DEBUG] Probing 15m slug=${slug} -> marketKey=${marketKey}`
+                    `[MARKET-TRACKER DEBUG] Probing ${is5Min ? '5m' : '15m'} slug=${slug} -> marketKey=${marketKey}`
                 );
             }
 
@@ -4300,9 +4398,9 @@ export class MarketTracker {
                 return null;
             }
 
-            // For 15-min markets, check if existing is from current window
-            if (is15Min && existingMarket && existingMarket.endDate && existingMarket.endDate > now) {
-                const pattern = /updown-15m-(\d+)/;
+            // For 5m/15m markets, check if existing is from current window
+            if ((is5Min || is15Min) && existingMarket && existingMarket.endDate && existingMarket.endDate > now) {
+                const pattern = is5Min ? /updown-5m-(\d+)/ : /updown-15m-(\d+)/;
                 const existingTimestamp = existingMarket.marketSlug?.match(pattern)?.[1];
                 const targetTimestamp = slug.match(pattern)?.[1];
                 if (existingTimestamp === targetTimestamp) {
@@ -4321,7 +4419,7 @@ export class MarketTracker {
                     logger.info(
                         `[MARKET-TRACKER DEBUG] Gamma returned ${data.length} event(s) for slug=${slug}`
                     );
-                    return { slug, data: data[0], marketKey, is15Min, is1Hour, isBTC };
+                    return { slug, data: data[0], marketKey, is5Min, is15Min, is1Hour, isBTC };
                 }
                 logger.info(
                     `[MARKET-TRACKER DEBUG] Gamma returned NO events for slug=${slug}`
@@ -4337,7 +4435,7 @@ export class MarketTracker {
         for (const result of results) {
             if (!result) continue;
 
-            const { slug, data: event, marketKey, is15Min, is1Hour } = result;
+            const { slug, data: event, marketKey, is5Min, is15Min, is1Hour } = result;
             const markets = event.markets || [];
 
             if (markets.length === 0) continue;
@@ -4362,12 +4460,17 @@ export class MarketTracker {
             // Parse end date - calculate from slug or API
             let endDate: number | undefined;
 
-            if (is15Min) {
-                // For 15-min markets: calculate from slug timestamp
+            if (is5Min) {
+                const tsMatch = slug.match(/updown-5m-(\d+)/);
+                if (tsMatch) {
+                    const startTime = parseInt(tsMatch[1], 10) * 1000;
+                    endDate = startTime + (5 * 60 * 1000);
+                }
+            } else if (is15Min) {
                 const tsMatch = slug.match(/updown-15m-(\d+)/);
                 if (tsMatch) {
                     const startTime = parseInt(tsMatch[1], 10) * 1000;
-                    endDate = startTime + (15 * 60 * 1000); // 15 minutes after start
+                    endDate = startTime + (15 * 60 * 1000);
                 }
             } else if (is1Hour) {
                 // For 1-hour markets: ALWAYS calculate from slug first (most reliable)
@@ -4468,24 +4571,21 @@ export class MarketTracker {
 
             const marketName = market.question || event.title || slug;
 
-            // For 15-min markets, update endDate if needed but don't remove markets here
-            // Market removal is handled by cleanup logic in displayStats()
-            if (is15Min) {
+            // For 5m/15m markets, update endDate if needed but don't remove markets here
+            if (is5Min || is15Min) {
                 const existingMarket = this.markets.get(marketKey);
                 if (existingMarket && existingMarket.marketSlug === slug) {
-                    // Same slug - update endDate to ensure it's correct
-                    // Recalculate endDate from slug to fix any timing issues
-                    const tsMatch = slug.match(/updown-15m-(\d+)/);
+                    const durationMs = is5Min ? (5 * 60 * 1000) : (15 * 60 * 1000);
+                    const pattern = is5Min ? /updown-5m-(\d+)/ : /updown-15m-(\d+)/;
+                    const tsMatch = slug.match(pattern);
                     if (tsMatch) {
                         const startTime = parseInt(tsMatch[1], 10) * 1000;
-                        const correctEndDate = startTime + (15 * 60 * 1000);
-                        // Validate: 15-min markets should never have more than 15 minutes left
+                        const correctEndDate = startTime + durationMs;
                         const timeLeft = correctEndDate - now;
-                        if (timeLeft <= 16 * 60 * 1000) {
+                        if (timeLeft <= durationMs + (60 * 1000)) {
                             existingMarket.endDate = correctEndDate;
                         }
                     }
-                    // Skip creating new market - keep existing one
                     continue;
                 }
             }
@@ -4494,7 +4594,7 @@ export class MarketTracker {
             const existingMarket = this.markets.get(marketKey);
             
             // For 1-hour markets: check if we need to replace with new hour's market
-            if (!is15Min && existingMarket) {
+            if (!is5Min && !is15Min && existingMarket) {
                 // Only remove if market has ended AND it's a different slug (new hour)
                 // Don't remove markets that are still active - let cleanup logic handle it
                 if (existingMarket.marketSlug === slug && existingMarket.endDate && existingMarket.endDate > now) {
@@ -4510,13 +4610,15 @@ export class MarketTracker {
             }
             
             if (!existingMarket || existingMarket.marketSlug !== slug) {
-                // For 15-min markets, ensure endDate is calculated correctly from slug
+                // For 5m/15m markets, ensure endDate is calculated correctly from slug
                 let finalEndDate = endDate;
-                if (is15Min && slug) {
-                    const tsMatch = slug.match(/updown-15m-(\d+)/);
+                if ((is5Min || is15Min) && slug) {
+                    const durationMs = is5Min ? (5 * 60 * 1000) : (15 * 60 * 1000);
+                    const pattern = is5Min ? /updown-5m-(\d+)/ : /updown-15m-(\d+)/;
+                    const tsMatch = slug.match(pattern);
                     if (tsMatch) {
                         const startTime = parseInt(tsMatch[1], 10) * 1000;
-                        finalEndDate = startTime + (15 * 60 * 1000); // Always 15 minutes from start
+                        finalEndDate = startTime + durationMs;
                     }
                 }
                 
@@ -4547,13 +4649,11 @@ export class MarketTracker {
                 // Notify priceStreamLogger that a new market window has started
                 const isBTC = marketKey.includes('BTC');
                 const type: 'BTC' | 'ETH' = isBTC ? 'BTC' : 'ETH';
-                const timeframe: '15m' | '1h' = is15Min ? '15m' : '1h';
+                const timeframe: '15m' | '1h' = (is5Min || is15Min) ? '15m' : '1h';
 
-                // Extract window start timestamp
                 let windowStart = 0;
-                if (is15Min) {
-                    // 15-min markets: extract from slug (e.g., btc-updown-15m-1735545600)
-                    const match = slug.match(/updown-15m-(\d+)/);
+                if (is5Min || is15Min) {
+                    const match = slug.match(/updown-(?:5|15)m-(\d+)/);
                     if (match) windowStart = parseInt(match[1], 10);
                 } else {
                     // Hourly markets: calculate from endDate (endDate - 1 hour = start)
@@ -4581,16 +4681,21 @@ export class MarketTracker {
         // Helper function to sync markets from priceStreamLogger
         const syncMarketsFromPriceStream = (marketsMap: Map<string, any>, isNext: boolean) => {
             for (const [marketType, info] of marketsMap.entries()) {
+                const is5MinType = marketType.includes('5m') && !marketType.includes('15m');
                 const is15MinType = marketType.includes('15m');
-                const is1HourType = marketType.includes('up-or-down') && !marketType.includes('15m');
-                if (!is15MinType && !is1HourType) continue;
+                const is1HourType = marketType.includes('up-or-down') && !marketType.includes('5m') && !marketType.includes('15m');
+                if (!is5MinType && !is15MinType && !is1HourType) continue;
 
                 const isBTCType = marketType.includes('btc') || marketType.includes('bitcoin');
 
-                // Build dashboard marketKey
                 let marketKey: string | null = null;
-                if (is15MinType) {
-                    // Extract timestamp from slug to create unique key matching extractMarketKey()
+                if (is5MinType) {
+                    const slug = (info.slug || '').toLowerCase();
+                    const tsMatch = slug.match(/updown-5m-(\d+)/);
+                    const timestamp = tsMatch ? tsMatch[1] : '';
+                    const baseKey = isBTCType ? 'BTC-UpDown-5' : 'ETH-UpDown-5';
+                    marketKey = timestamp ? `${baseKey}-${timestamp}` : baseKey;
+                } else if (is15MinType) {
                     const slug = (info.slug || '').toLowerCase();
                     const tsMatch = slug.match(/updown-15m-(\d+)/);
                     const timestamp = tsMatch ? tsMatch[1] : '';
@@ -4678,8 +4783,8 @@ export class MarketTracker {
         const nextHourPattern = new RegExp(`-${nextHour}${nextAmpm}-et$`, 'i');
 
         for (const cachedSlug of this.discoveredSlugs) {
-            // Check if it's a 1-hour slug (contains 'up-or-down' but not '15m')
-            if (cachedSlug.includes('up-or-down') && !cachedSlug.includes('15m')) {
+            // Check if it's a 1-hour slug (contains 'up-or-down' but not 5m/15m)
+            if (cachedSlug.includes('up-or-down') && !cachedSlug.includes('5m') && !cachedSlug.includes('15m')) {
                 // Keep only current and next hour slugs
                 if (!currentHourPattern.test(cachedSlug) && !nextHourPattern.test(cachedSlug)) {
                     this.discoveredSlugs.delete(cachedSlug);

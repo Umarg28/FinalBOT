@@ -1,8 +1,19 @@
 import axios from "axios";
+import http from "http";
+import https from "https";
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
+
+const client = axios.create({
+  httpAgent,
+  httpsAgent,
+  timeout: 15000,
+});
 
 export async function fetchData<T>(url: string): Promise<T> {
   try {
-    const response = await axios.get<T>(url);
+    const response = await client.get<T>(url);
     return response.data;
   } catch (error) {
     const logger = require('./logger').default;
@@ -13,7 +24,7 @@ export async function fetchData<T>(url: string): Promise<T> {
 
 export async function postData<T, R>(url: string, data: T): Promise<R> {
   try {
-    const response = await axios.post<R>(url, data);
+    const response = await client.post<R>(url, data);
     return response.data;
   } catch (error) {
     const logger = require('./logger').default;

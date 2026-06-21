@@ -200,7 +200,7 @@ class ParameterLoader {
     private isNewFormat(params: any): boolean {
         // New format has market keys like "BTC_15m", "ETH_15m", etc. as top-level
         // Old format has "entry_params", "size_params", etc. as top-level
-        const marketKeys = ['BTC_15m', 'ETH_15m', 'BTC_1h', 'ETH_1h'];
+        const marketKeys = ['BTC_5m', 'ETH_5m', 'BTC_15m', 'ETH_15m', 'BTC_1h', 'ETH_1h'];
         const hasMarketKey = marketKeys.some(key => key in params);
         const hasOldFormatKey = 'entry_params' in params || 'size_params' in params;
         
@@ -222,7 +222,7 @@ class ParameterLoader {
         // Iterate through market keys (BTC_15m, ETH_15m, etc.)
         for (const marketKey in newFormat) {
             // Skip if it's not a market key (e.g., metadata)
-            if (!['BTC_15m', 'ETH_15m', 'BTC_1h', 'ETH_1h'].includes(marketKey)) {
+            if (!['BTC_5m', 'ETH_5m', 'BTC_15m', 'ETH_15m', 'BTC_1h', 'ETH_1h'].includes(marketKey)) {
                 continue;
             }
 
@@ -331,6 +331,8 @@ class ParameterLoader {
      */
     private normalizeMarketKey(marketKey: string): string {
         // Handle different formats
+        if (marketKey.includes('BTC') && marketKey.includes('UpDown-5')) return 'BTC_5m';
+        if (marketKey.includes('ETH') && marketKey.includes('UpDown-5')) return 'ETH_5m';
         if (marketKey.includes('BTC') && marketKey.includes('15')) return 'BTC_15m';
         if (marketKey.includes('ETH') && marketKey.includes('15')) return 'ETH_15m';
         if (marketKey.includes('BTC') && (marketKey.includes('1h') || marketKey.includes('1 hour'))) return 'BTC_1h';

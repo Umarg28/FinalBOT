@@ -10,6 +10,7 @@
     "paper": "cross-env PAPER_MODE=true ts-node src/index.ts",
     "watcher": "cross-env WATCHER_MODE=true PAPER_MODE=true ts-node src/index.ts",
     "watcher:dashboard": "cross-env WATCHER_MODE=true PAPER_MODE=true ts-node src/index.ts",
+    "profits": "ts-node src/scripts/profitTelegramReporter.ts",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",

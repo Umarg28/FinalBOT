@@ -1,0 +1,1656 @@
+[
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:00PM-7:05PM ET",
+    "conditionId": "0x6a2f899d2683055f5f0a4cb50f177e230fe3274899600be68c8ae9c7f75f9a12",
+    "marketPnL": {
+      "conditionId": "0x6a2f899d2683055f5f0a4cb50f177e230fe3274899600be68c8ae9c7f75f9a12",
+      "marketName": "Bitcoin Up or Down - April 29, 7:00PM-7:05PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x6a2f899d2683055f5f0a4cb50f177e230fe3274899600be68c8ae9c7f75f9a12",
+            "tokenId": "85545841719923986700965873877623523424267428914511929929984522479106991369063",
+            "title": "Bitcoin Up or Down - April 29, 7:00PM-7:05PM ET",
+            "outcome": "Up",
+            "size": 1152.2500000000005,
+            "avgPrice": 0.5772522456064221,
+            "timestamp": "2026-04-29T23:04:59.034Z"
+          },
+          "costBasis": 649.3365000000002,
+          "currentValue": 649.3365000000002,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x6a2f899d2683055f5f0a4cb50f177e230fe3274899600be68c8ae9c7f75f9a12",
+            "tokenId": "29051631259954602972252849239928304970279602193153258177684135759727176516496",
+            "title": "Bitcoin Up or Down - April 29, 7:00PM-7:05PM ET",
+            "outcome": "Down",
+            "size": 1279.9600000000003,
+            "avgPrice": 0.4724385022729304,
+            "timestamp": "2026-04-29T23:05:00.320Z"
+          },
+          "costBasis": 584.1418,
+          "currentValue": 1252.4600000000003,
+          "unrealizedPnL": 668.3182000000003,
+          "unrealizedPnLPercent": 114.41026819173021,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1233.4783000000002,
+      "totalCurrentValue": 1901.7965000000004,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 668.3182000000002,
+      "totalPnL": 668.3182000000002,
+      "totalPnLPercent": 54.181593628359735,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": 1.5654000000001815,
+    "pnlPercent": 0.12830993989745546,
+    "sharesUp": 1123.4600000000003,
+    "sharesDown": 1221.5800000000002,
+    "timestamp": 1777503890965
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:00PM-7:05PM ET",
+    "conditionId": "0xc47b2344b79164b00c5d882bd56a3490963f8080666edada47d21d12e3d470a5",
+    "marketPnL": {
+      "conditionId": "0xc47b2344b79164b00c5d882bd56a3490963f8080666edada47d21d12e3d470a5",
+      "marketName": "Ethereum Up or Down - April 29, 7:00PM-7:05PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xc47b2344b79164b00c5d882bd56a3490963f8080666edada47d21d12e3d470a5",
+            "tokenId": "39567689715157973794782794413256372823534612407239896314630844417285357312095",
+            "title": "Ethereum Up or Down - April 29, 7:00PM-7:05PM ET",
+            "outcome": "Up",
+            "size": 893.0200000000001,
+            "avgPrice": 0.5354638193993414,
+            "timestamp": "2026-04-29T23:03:01.417Z"
+          },
+          "costBasis": 478.1798999999999,
+          "currentValue": 893.0200000000001,
+          "unrealizedPnL": 414.8401000000002,
+          "unrealizedPnLPercent": 86.75398108536145,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xc47b2344b79164b00c5d882bd56a3490963f8080666edada47d21d12e3d470a5",
+            "tokenId": "23993793935162238509280235110375269558142096306091625564330303595090756307042",
+            "title": "Ethereum Up or Down - April 29, 7:00PM-7:05PM ET",
+            "outcome": "Down",
+            "size": 1302.4699999999998,
+            "avgPrice": 0.5631142180387999,
+            "timestamp": "2026-04-29T23:04:44.858Z"
+          },
+          "costBasis": 733.4393755689956,
+          "currentValue": 733.4393755689956,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1211.6192755689956,
+      "totalCurrentValue": 1626.4593755689957,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 414.8401000000001,
+      "totalPnL": 414.8401000000001,
+      "totalPnLPercent": 34.23848632691855,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -309.64067556899556,
+    "pnlPercent": -25.746304162019783,
+    "sharesUp": 893.0200000000001,
+    "sharesDown": 1288.2999999999997,
+    "timestamp": 1777503891004
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:05PM-7:10PM ET",
+    "conditionId": "0x5ff8d8aacaf5ce1305488dbb26963ce276dce935a20beb244ed08312a0b5098f",
+    "marketPnL": {
+      "conditionId": "0x5ff8d8aacaf5ce1305488dbb26963ce276dce935a20beb244ed08312a0b5098f",
+      "marketName": "Bitcoin Up or Down - April 29, 7:05PM-7:10PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x5ff8d8aacaf5ce1305488dbb26963ce276dce935a20beb244ed08312a0b5098f",
+            "tokenId": "60166918963560244746420271785936501442403000150787794603539828438973034366286",
+            "title": "Bitcoin Up or Down - April 29, 7:05PM-7:10PM ET",
+            "outcome": "Up",
+            "size": 1154.6100000000008,
+            "avgPrice": 0.6378032588327825,
+            "timestamp": "2026-04-29T23:09:58.395Z"
+          },
+          "costBasis": 734.6110206809196,
+          "currentValue": 1151.7200000000007,
+          "unrealizedPnL": 417.1089793190811,
+          "unrealizedPnLPercent": 56.77957008219913,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x5ff8d8aacaf5ce1305488dbb26963ce276dce935a20beb244ed08312a0b5098f",
+            "tokenId": "7195491887882004476093092576613081358461803704334869494211251395371280726203",
+            "title": "Bitcoin Up or Down - April 29, 7:05PM-7:10PM ET",
+            "outcome": "Down",
+            "size": 1106.530000000001,
+            "avgPrice": 0.39215276585361386,
+            "timestamp": "2026-04-29T23:09:54.779Z"
+          },
+          "costBasis": 427.43229999999977,
+          "currentValue": 427.43229999999977,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1162.0433206809194,
+      "totalCurrentValue": 1579.1523000000004,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 417.1089793190811,
+      "totalPnL": 417.1089793190811,
+      "totalPnLPercent": 35.89444316711608,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -10.323320680918641,
+    "pnlPercent": -0.888376577464385,
+    "sharesUp": 1151.7200000000007,
+    "sharesDown": 1097.380000000001,
+    "timestamp": 1777504191082
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:05PM-7:10PM ET",
+    "conditionId": "0xa2a70d9a3fb3c79e81a00678ec1fac66fa8429d0d9fb0022082ac24bf9046eba",
+    "marketPnL": {
+      "conditionId": "0xa2a70d9a3fb3c79e81a00678ec1fac66fa8429d0d9fb0022082ac24bf9046eba",
+      "marketName": "Ethereum Up or Down - April 29, 7:05PM-7:10PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xa2a70d9a3fb3c79e81a00678ec1fac66fa8429d0d9fb0022082ac24bf9046eba",
+            "tokenId": "112384471668085683274363917394201473681135146775288106331304005323056117343737",
+            "title": "Ethereum Up or Down - April 29, 7:05PM-7:10PM ET",
+            "outcome": "Up",
+            "size": 704.0999999999997,
+            "avgPrice": 0.7067144020242653,
+            "timestamp": "2026-04-29T23:09:53.464Z"
+          },
+          "costBasis": 493.67039600303883,
+          "currentValue": 700.1499999999996,
+          "unrealizedPnL": 206.4796039969608,
+          "unrealizedPnLPercent": 41.8253972020007,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xa2a70d9a3fb3c79e81a00678ec1fac66fa8429d0d9fb0022082ac24bf9046eba",
+            "tokenId": "19209912466674507973556078635248852398836325652200084501613681662585278401911",
+            "title": "Ethereum Up or Down - April 29, 7:05PM-7:10PM ET",
+            "outcome": "Down",
+            "size": 807.9200000000004,
+            "avgPrice": 0.33762006139221684,
+            "timestamp": "2026-04-29T23:09:56.051Z"
+          },
+          "costBasis": 263.3554,
+          "currentValue": 263.3554,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 757.0257960030387,
+      "totalCurrentValue": 963.5053999999996,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 206.4796039969608,
+      "totalPnL": 206.4796039969608,
+      "totalPnLPercent": 27.275108072556613,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -56.875796003038886,
+    "pnlPercent": -7.513059172267704,
+    "sharesUp": 700.1499999999996,
+    "sharesDown": 794.6600000000004,
+    "timestamp": 1777504191107
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:00PM-7:15PM ET",
+    "conditionId": "0x9b1aa9d519f9a512b1721941df1a00e2ec5878c14008940f422e38dd8a32c061",
+    "marketPnL": {
+      "conditionId": "0x9b1aa9d519f9a512b1721941df1a00e2ec5878c14008940f422e38dd8a32c061",
+      "marketName": "Bitcoin Up or Down - April 29, 7:00PM-7:15PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x9b1aa9d519f9a512b1721941df1a00e2ec5878c14008940f422e38dd8a32c061",
+            "tokenId": "64572680169028558956026852043000695165254246483193889964793158813470533666503",
+            "title": "Bitcoin Up or Down - April 29, 7:00PM-7:15PM ET",
+            "outcome": "Up",
+            "size": 568.7600000000001,
+            "avgPrice": 0.6973909555463053,
+            "timestamp": "2026-04-29T23:14:37.892Z"
+          },
+          "costBasis": 396.64807987651665,
+          "currentValue": 568.7600000000001,
+          "unrealizedPnL": 172.11192012348346,
+          "unrealizedPnLPercent": 43.39159291457174,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x9b1aa9d519f9a512b1721941df1a00e2ec5878c14008940f422e38dd8a32c061",
+            "tokenId": "65667204204263019695921181129635385218570374204562364351315034532026614178580",
+            "title": "Bitcoin Up or Down - April 29, 7:00PM-7:15PM ET",
+            "outcome": "Down",
+            "size": 622.9499999999998,
+            "avgPrice": 0.3241480054579019,
+            "timestamp": "2026-04-29T23:11:58.754Z"
+          },
+          "costBasis": 201.92799999999994,
+          "currentValue": 201.92799999999994,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 598.5760798765166,
+      "totalCurrentValue": 770.6880000000001,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 172.11192012348351,
+      "totalPnL": 172.11192012348351,
+      "totalPnLPercent": 28.753557970273285,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": 170.52612012348345,
+    "pnlPercent": 2.9976111332384066,
+    "sharesUp": 5859.259999999995,
+    "sharesDown": 5530.150000000002,
+    "timestamp": 1777504491208
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:00PM-7:15PM ET",
+    "conditionId": "0xbacf7790e8fc8dc2db8e381f6d1055254e6c381c79bdc7ad9eb6d23e66f51804",
+    "marketPnL": {
+      "conditionId": "0xbacf7790e8fc8dc2db8e381f6d1055254e6c381c79bdc7ad9eb6d23e66f51804",
+      "marketName": "Ethereum Up or Down - April 29, 7:00PM-7:15PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xbacf7790e8fc8dc2db8e381f6d1055254e6c381c79bdc7ad9eb6d23e66f51804",
+            "tokenId": "100623570931756532524988714959337769204320662113447253180273213958036024940768",
+            "title": "Ethereum Up or Down - April 29, 7:00PM-7:15PM ET",
+            "outcome": "Up",
+            "size": 736.98,
+            "avgPrice": 0.6237307184343717,
+            "timestamp": "2026-04-29T23:14:35.595Z"
+          },
+          "costBasis": 459.67706487176326,
+          "currentValue": 459.67706487176326,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xbacf7790e8fc8dc2db8e381f6d1055254e6c381c79bdc7ad9eb6d23e66f51804",
+            "tokenId": "89075088457895596790542688414505999091766854058753046118037826375922072061400",
+            "title": "Ethereum Up or Down - April 29, 7:00PM-7:15PM ET",
+            "outcome": "Down",
+            "size": 577.9399999999999,
+            "avgPrice": 0.4589948783610758,
+            "timestamp": "2026-04-29T23:12:02.273Z"
+          },
+          "costBasis": 265.2715000000001,
+          "currentValue": 577.9399999999999,
+          "unrealizedPnL": 312.6684999999998,
+          "unrealizedPnLPercent": 117.86735476672001,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 724.9485648717634,
+      "totalCurrentValue": 1037.6170648717632,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 312.66849999999977,
+      "totalPnL": 312.66849999999977,
+      "totalPnLPercent": 43.12974949544287,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": -202.5794648717656,
+    "pnlPercent": -5.10860006681008,
+    "sharesUp": 3839.2599999999984,
+    "sharesDown": 3762.8799999999987,
+    "timestamp": 1777504491237
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:10PM-7:15PM ET",
+    "conditionId": "0xf1c3bdf4afc0ca8a4ab139c275b4a89350c1c1edea97c96dfff33782cac87a15",
+    "marketPnL": {
+      "conditionId": "0xf1c3bdf4afc0ca8a4ab139c275b4a89350c1c1edea97c96dfff33782cac87a15",
+      "marketName": "Ethereum Up or Down - April 29, 7:10PM-7:15PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xf1c3bdf4afc0ca8a4ab139c275b4a89350c1c1edea97c96dfff33782cac87a15",
+            "tokenId": "92064395733793151086449226096778548439128182264583709391585619048710243782794",
+            "title": "Ethereum Up or Down - April 29, 7:10PM-7:15PM ET",
+            "outcome": "Up",
+            "size": 1070.0199999999993,
+            "avgPrice": 0.649179022759215,
+            "timestamp": "2026-04-29T23:14:57.033Z"
+          },
+          "costBasis": 693.0315000000002,
+          "currentValue": 1068.4099999999994,
+          "unrealizedPnL": 375.37849999999924,
+          "unrealizedPnLPercent": 54.16470968491319,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xf1c3bdf4afc0ca8a4ab139c275b4a89350c1c1edea97c96dfff33782cac87a15",
+            "tokenId": "68153008820166205377657702221572469492497996795452506513928236019169461809246",
+            "title": "Ethereum Up or Down - April 29, 7:10PM-7:15PM ET",
+            "outcome": "Down",
+            "size": 1000.82,
+            "avgPrice": 0.4592126456305828,
+            "timestamp": "2026-04-29T23:13:11.559Z"
+          },
+          "costBasis": 459.5891999999999,
+          "currentValue": 459.5891999999999,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1152.6207,
+      "totalCurrentValue": 1527.9991999999993,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 375.37849999999935,
+      "totalPnL": 375.37849999999935,
+      "totalPnLPercent": 32.567391857529486,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -85.23289999999997,
+    "pnlPercent": -7.2635512435351,
+    "sharesUp": 1088.1999999999998,
+    "sharesDown": 1031.57,
+    "timestamp": 1777504491269
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:10PM-7:15PM ET",
+    "conditionId": "0xadbd87644ef62296111b15326c12cf6a46ec70b542e8b968592d27d989559f96",
+    "marketPnL": {
+      "conditionId": "0xadbd87644ef62296111b15326c12cf6a46ec70b542e8b968592d27d989559f96",
+      "marketName": "Bitcoin Up or Down - April 29, 7:10PM-7:15PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xadbd87644ef62296111b15326c12cf6a46ec70b542e8b968592d27d989559f96",
+            "tokenId": "5419282494371542009984038153718390151096128117169058977969630446574346955766",
+            "title": "Bitcoin Up or Down - April 29, 7:10PM-7:15PM ET",
+            "outcome": "Up",
+            "size": 1230.6099999999997,
+            "avgPrice": 0.5957897302963572,
+            "timestamp": "2026-04-29T23:14:58.176Z"
+          },
+          "costBasis": 722.3047999999999,
+          "currentValue": 1208.8499999999997,
+          "unrealizedPnL": 486.5451999999998,
+          "unrealizedPnLPercent": 67.36009507343712,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xadbd87644ef62296111b15326c12cf6a46ec70b542e8b968592d27d989559f96",
+            "tokenId": "27211768371227553569754140439567941157428037911529027879330955534420257430487",
+            "title": "Bitcoin Up or Down - April 29, 7:10PM-7:15PM ET",
+            "outcome": "Down",
+            "size": 1173.9400000000005,
+            "avgPrice": 0.4718841678450343,
+            "timestamp": "2026-04-29T23:14:58.209Z"
+          },
+          "costBasis": 539.8338999999999,
+          "currentValue": 539.8338999999999,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1262.1386999999997,
+      "totalCurrentValue": 1748.6838999999995,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 486.5451999999998,
+      "totalPnL": 486.5451999999998,
+      "totalPnLPercent": 38.5492656235008,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -53.28870000000006,
+    "pnlPercent": -4.222095400450051,
+    "sharesUp": 1208.8499999999997,
+    "sharesDown": 1146.5900000000004,
+    "timestamp": 1777504491295
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:15PM-7:20PM ET",
+    "conditionId": "0x112e48d8e59aa30e6d5cdb65d1b9edd2526aa73e6a7ce86c6e8a66d68c5b237c",
+    "marketPnL": {
+      "conditionId": "0x112e48d8e59aa30e6d5cdb65d1b9edd2526aa73e6a7ce86c6e8a66d68c5b237c",
+      "marketName": "Bitcoin Up or Down - April 29, 7:15PM-7:20PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x112e48d8e59aa30e6d5cdb65d1b9edd2526aa73e6a7ce86c6e8a66d68c5b237c",
+            "tokenId": "48959863329551555215272166238779866292539949004657019356490287529975377125945",
+            "title": "Bitcoin Up or Down - April 29, 7:15PM-7:20PM ET",
+            "outcome": "Up",
+            "size": 952.6200000000002,
+            "avgPrice": 0.4827214419180781,
+            "timestamp": "2026-04-29T23:17:59.333Z"
+          },
+          "costBasis": 459.85009999999966,
+          "currentValue": 459.85009999999966,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x112e48d8e59aa30e6d5cdb65d1b9edd2526aa73e6a7ce86c6e8a66d68c5b237c",
+            "tokenId": "87301069461958952359709764537296689560834378391712391580419192451323529510191",
+            "title": "Bitcoin Up or Down - April 29, 7:15PM-7:20PM ET",
+            "outcome": "Down",
+            "size": 1069.59,
+            "avgPrice": 0.5956948095834236,
+            "timestamp": "2026-04-29T23:19:55.152Z"
+          },
+          "costBasis": 631.9590150189514,
+          "currentValue": 1063.6299999999999,
+          "unrealizedPnL": 431.6709849810485,
+          "unrealizedPnLPercent": 68.30680071366707,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1091.8091150189512,
+      "totalCurrentValue": 1523.4800999999995,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 431.6709849810484,
+      "totalPnL": 431.6709849810484,
+      "totalPnLPercent": 39.53722120863184,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": -27.91001501895107,
+    "pnlPercent": -2.594180953956547,
+    "sharesUp": 939.0700000000003,
+    "sharesDown": 1047.96,
+    "timestamp": 1777504790636
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:15PM-7:20PM ET",
+    "conditionId": "0xf75ecd38665ad4e145dbb20d6326aafd9757465dcb4685e82e90d1eb8af794b3",
+    "marketPnL": {
+      "conditionId": "0xf75ecd38665ad4e145dbb20d6326aafd9757465dcb4685e82e90d1eb8af794b3",
+      "marketName": "Ethereum Up or Down - April 29, 7:15PM-7:20PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xf75ecd38665ad4e145dbb20d6326aafd9757465dcb4685e82e90d1eb8af794b3",
+            "tokenId": "92312464344731743823366282602660258507334030090575194241586389080625811289459",
+            "title": "Ethereum Up or Down - April 29, 7:15PM-7:20PM ET",
+            "outcome": "Up",
+            "size": 362.91999999999996,
+            "avgPrice": 0.36735230904882615,
+            "timestamp": "2026-04-29T23:19:58.533Z"
+          },
+          "costBasis": 123.89469999999997,
+          "currentValue": 123.89469999999997,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xf75ecd38665ad4e145dbb20d6326aafd9757465dcb4685e82e90d1eb8af794b3",
+            "tokenId": "7589536001942533758819265186788187416862085190603728033989735941114800740994",
+            "title": "Ethereum Up or Down - April 29, 7:15PM-7:20PM ET",
+            "outcome": "Down",
+            "size": 537.0299999999999,
+            "avgPrice": 0.7250341262808767,
+            "timestamp": "2026-04-29T23:19:51.757Z"
+          },
+          "costBasis": 388.4505723001176,
+          "currentValue": 536.1099999999999,
+          "unrealizedPnL": 147.65942769988231,
+          "unrealizedPnLPercent": 38.01241090354229,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 512.3452723001176,
+      "totalCurrentValue": 660.0046999999998,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 147.65942769988226,
+      "totalPnL": 147.65942769988226,
+      "totalPnLPercent": 28.820296718457367,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": 39.52672769988226,
+    "pnlPercent": 7.959738054968891,
+    "sharesUp": 319.34999999999997,
+    "sharesDown": 536.1099999999999,
+    "timestamp": 1777504790661
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:20PM-7:25PM ET",
+    "conditionId": "0xc2a69940dea0423b4b1ef2bb4d9d7d877726ed808e5ef85bc8e32af8c8d85b13",
+    "marketPnL": {
+      "conditionId": "0xc2a69940dea0423b4b1ef2bb4d9d7d877726ed808e5ef85bc8e32af8c8d85b13",
+      "marketName": "Bitcoin Up or Down - April 29, 7:20PM-7:25PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xc2a69940dea0423b4b1ef2bb4d9d7d877726ed808e5ef85bc8e32af8c8d85b13",
+            "tokenId": "47478138934080927620273972827257346900012631917349945822344945612307286594453",
+            "title": "Bitcoin Up or Down - April 29, 7:20PM-7:25PM ET",
+            "outcome": "Up",
+            "size": 961.16,
+            "avgPrice": 0.5620118398601688,
+            "timestamp": "2026-04-29T23:22:07.981Z"
+          },
+          "costBasis": 540.1832999999998,
+          "currentValue": 540.1832999999998,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xc2a69940dea0423b4b1ef2bb4d9d7d877726ed808e5ef85bc8e32af8c8d85b13",
+            "tokenId": "42090286160305786068962963420292706297237683704375525705590623136268938015815",
+            "title": "Bitcoin Up or Down - April 29, 7:20PM-7:25PM ET",
+            "outcome": "Down",
+            "size": 1264.9700000000007,
+            "avgPrice": 0.5786915546157341,
+            "timestamp": "2026-04-29T23:24:22.807Z"
+          },
+          "costBasis": 732.0274558422656,
+          "currentValue": 1264.9700000000007,
+          "unrealizedPnL": 532.9425441577351,
+          "unrealizedPnLPercent": 72.80362777438931,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1272.2107558422654,
+      "totalCurrentValue": 1805.1533000000004,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 532.942544157735,
+      "totalPnL": 532.942544157735,
+      "totalPnLPercent": 41.89105788568036,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": 8.241144157735562,
+    "pnlPercent": 0.6404724756359866,
+    "sharesUp": 961.16,
+    "sharesDown": 1294.9700000000007,
+    "timestamp": 1777505090607
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:20PM-7:25PM ET",
+    "conditionId": "0x06e405bcd2607bd29c85d968b24fa37c09583decf4973b91c6fe0a4556c86f83",
+    "marketPnL": {
+      "conditionId": "0x06e405bcd2607bd29c85d968b24fa37c09583decf4973b91c6fe0a4556c86f83",
+      "marketName": "Ethereum Up or Down - April 29, 7:20PM-7:25PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x06e405bcd2607bd29c85d968b24fa37c09583decf4973b91c6fe0a4556c86f83",
+            "tokenId": "4262249279041663744182088751944769481853538573854607325290482524079954547327",
+            "title": "Ethereum Up or Down - April 29, 7:20PM-7:25PM ET",
+            "outcome": "Up",
+            "size": 999.04,
+            "avgPrice": 0.4889764173606666,
+            "timestamp": "2026-04-29T23:21:56.028Z"
+          },
+          "costBasis": 488.50700000000035,
+          "currentValue": 488.50700000000035,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x06e405bcd2607bd29c85d968b24fa37c09583decf4973b91c6fe0a4556c86f83",
+            "tokenId": "10199360855434513519047615400228232162188873854845613156874808750157503226296",
+            "title": "Ethereum Up or Down - April 29, 7:20PM-7:25PM ET",
+            "outcome": "Down",
+            "size": 1316.589999999999,
+            "avgPrice": 0.6095255079142508,
+            "timestamp": "2026-04-29T23:24:40.257Z"
+          },
+          "costBasis": 802.4951884648228,
+          "currentValue": 1316.589999999999,
+          "unrealizedPnL": 514.0948115351762,
+          "unrealizedPnLPercent": 64.06204285394433,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1291.0021884648231,
+      "totalCurrentValue": 1805.0969999999993,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 514.0948115351762,
+      "totalPnL": 514.0948115351762,
+      "totalPnLPercent": 39.821374133106985,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": 22.654811535176123,
+    "pnlPercent": 1.7858188129021364,
+    "sharesUp": 983.67,
+    "sharesDown": 1291.249999999999,
+    "timestamp": 1777505090636
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:15PM-7:30PM ET",
+    "conditionId": "0xbee89ab72a2790694cb36ea2058b5e4657348a074fd1dbc895c74a97223b1f88",
+    "marketPnL": {
+      "totalPnl": -8.922799999998915,
+      "pnlPercent": -0.8257548751445927,
+      "positions": [],
+      "totalCostBasis": 1080.5628000000002
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": -8.922799999998915,
+    "pnlPercent": -0.8257548751445927,
+    "sharesUp": 849.8999999999995,
+    "sharesDown": 1071.6400000000012,
+    "timestamp": 1777505390243
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:15PM-7:30PM ET",
+    "conditionId": "0x4d272a9d0e559c10e7aa43147aeb7c4631abbf1c3ded383075353a4782fb9e3e",
+    "marketPnL": {
+      "totalPnl": 160.38860000000113,
+      "pnlPercent": 10.178547199767758,
+      "positions": [],
+      "totalCostBasis": 1575.751399999999
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": 160.38860000000113,
+    "pnlPercent": 10.178547199767758,
+    "sharesUp": 1420.3100000000002,
+    "sharesDown": 1736.14,
+    "timestamp": 1777505390262
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:25PM-7:30PM ET",
+    "conditionId": "0x664032f08ba5e6845a7af16a5627af3de84f2e646e0ce25637f1ba6f19716b75",
+    "marketPnL": {
+      "conditionId": "0x664032f08ba5e6845a7af16a5627af3de84f2e646e0ce25637f1ba6f19716b75",
+      "marketName": "Bitcoin Up or Down - April 29, 7:25PM-7:30PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x664032f08ba5e6845a7af16a5627af3de84f2e646e0ce25637f1ba6f19716b75",
+            "tokenId": "79856420279938552221564626690504132465805238665024020463691118166392039469104",
+            "title": "Bitcoin Up or Down - April 29, 7:25PM-7:30PM ET",
+            "outcome": "Up",
+            "size": 917.9000000000004,
+            "avgPrice": 0.6883578821222351,
+            "timestamp": "2026-04-29T23:30:00.082Z"
+          },
+          "costBasis": 626.9290999999998,
+          "currentValue": 912.4700000000004,
+          "unrealizedPnL": 285.54090000000053,
+          "unrealizedPnLPercent": 45.54596365043521,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x664032f08ba5e6845a7af16a5627af3de84f2e646e0ce25637f1ba6f19716b75",
+            "tokenId": "113236652632888107107008686521207121756424104735908420710479764825793912512793",
+            "title": "Bitcoin Up or Down - April 29, 7:25PM-7:30PM ET",
+            "outcome": "Down",
+            "size": 1160.2800000000007,
+            "avgPrice": 0.35455209087461603,
+            "timestamp": "2026-04-29T23:30:00.132Z"
+          },
+          "costBasis": 407.23069999999973,
+          "currentValue": 407.23069999999973,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1034.1597999999994,
+      "totalCurrentValue": 1319.7007,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 285.54090000000065,
+      "totalPnL": 285.54090000000065,
+      "totalPnLPercent": 27.61090694107437,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -120.44009999999935,
+    "pnlPercent": -11.623359458848272,
+    "sharesUp": 915.7500000000005,
+    "sharesDown": 1151.5500000000006,
+    "timestamp": 1777505390290
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:25PM-7:30PM ET",
+    "conditionId": "0x55a5c39831ebe67e6bd6b2b1fa92bd4591fbde8b0172a0344202280c432a03c8",
+    "marketPnL": {
+      "conditionId": "0x55a5c39831ebe67e6bd6b2b1fa92bd4591fbde8b0172a0344202280c432a03c8",
+      "marketName": "Ethereum Up or Down - April 29, 7:25PM-7:30PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x55a5c39831ebe67e6bd6b2b1fa92bd4591fbde8b0172a0344202280c432a03c8",
+            "tokenId": "39806577312607839999814322840858724091191691847899566759308372190110731089725",
+            "title": "Ethereum Up or Down - April 29, 7:25PM-7:30PM ET",
+            "outcome": "Up",
+            "size": 800.5200000000001,
+            "avgPrice": 0.7032081865076915,
+            "timestamp": "2026-04-29T23:29:53.564Z"
+          },
+          "costBasis": 561.6384441089074,
+          "currentValue": 799.2200000000001,
+          "unrealizedPnL": 237.58155589109276,
+          "unrealizedPnLPercent": 42.301512366739495,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x55a5c39831ebe67e6bd6b2b1fa92bd4591fbde8b0172a0344202280c432a03c8",
+            "tokenId": "98611454436217604236023653581896092841148615115815271923159180987169948911872",
+            "title": "Ethereum Up or Down - April 29, 7:25PM-7:30PM ET",
+            "outcome": "Down",
+            "size": 925.8500000000001,
+            "avgPrice": 0.32708883728465715,
+            "timestamp": "2026-04-29T23:27:24.749Z"
+          },
+          "costBasis": 302.8351999999999,
+          "currentValue": 302.8351999999999,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 864.4736441089073,
+      "totalCurrentValue": 1102.0552,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 237.58155589109276,
+      "totalPnL": 237.58155589109276,
+      "totalPnLPercent": 27.482799216625047,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -65.25364410890688,
+    "pnlPercent": -7.548367096393072,
+    "sharesUp": 799.2200000000001,
+    "sharesDown": 925.8500000000001,
+    "timestamp": 1777505390318
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:30PM-7:35PM ET",
+    "conditionId": "0xcdabc4a831ed91b4773881cce854fa05c0129762dcbbca66b5d6c87d5595e29a",
+    "marketPnL": {
+      "conditionId": "0xcdabc4a831ed91b4773881cce854fa05c0129762dcbbca66b5d6c87d5595e29a",
+      "marketName": "Bitcoin Up or Down - April 29, 7:30PM-7:35PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xcdabc4a831ed91b4773881cce854fa05c0129762dcbbca66b5d6c87d5595e29a",
+            "tokenId": "57987415765519396801349490519779311166388838292777131093277166481952026889962",
+            "title": "Bitcoin Up or Down - April 29, 7:30PM-7:35PM ET",
+            "outcome": "Up",
+            "size": 694.7400000000002,
+            "avgPrice": 0.6880301714995071,
+            "timestamp": "2026-04-29T23:34:55.231Z"
+          },
+          "costBasis": 472.5810813475677,
+          "currentValue": 687.7900000000002,
+          "unrealizedPnL": 215.2089186524325,
+          "unrealizedPnLPercent": 45.53904655657459,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xcdabc4a831ed91b4773881cce854fa05c0129762dcbbca66b5d6c87d5595e29a",
+            "tokenId": "4922236558174192130327847817551311440970222754461111421243581611951447325122",
+            "title": "Bitcoin Up or Down - April 29, 7:30PM-7:35PM ET",
+            "outcome": "Down",
+            "size": 728.16,
+            "avgPrice": 0.3519844539661615,
+            "timestamp": "2026-04-29T23:32:25.931Z"
+          },
+          "costBasis": 256.30100000000016,
+          "currentValue": 256.30100000000016,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 728.8820813475679,
+      "totalCurrentValue": 944.0910000000003,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 215.20891865243243,
+      "totalPnL": 215.20891865243243,
+      "totalPnLPercent": 29.52588959994064,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -41.09208134756739,
+    "pnlPercent": -5.637685765521326,
+    "sharesUp": 687.7900000000002,
+    "sharesDown": 728.16,
+    "timestamp": 1777505690725
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:30PM-7:35PM ET",
+    "conditionId": "0x275ae4a727da72b22bcc6451b8c9deb493eadcd3e9dca1736a49c92434fad510",
+    "marketPnL": {
+      "conditionId": "0x275ae4a727da72b22bcc6451b8c9deb493eadcd3e9dca1736a49c92434fad510",
+      "marketName": "Ethereum Up or Down - April 29, 7:30PM-7:35PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x275ae4a727da72b22bcc6451b8c9deb493eadcd3e9dca1736a49c92434fad510",
+            "tokenId": "15653741475725680500417628981198943799427556299113213578390159572919168716768",
+            "title": "Ethereum Up or Down - April 29, 7:30PM-7:35PM ET",
+            "outcome": "Up",
+            "size": 769.7500000000001,
+            "avgPrice": 0.7001962789067112,
+            "timestamp": "2026-04-29T23:34:40.738Z"
+          },
+          "costBasis": 538.976085688441,
+          "currentValue": 769.7500000000001,
+          "unrealizedPnL": 230.7739143115591,
+          "unrealizedPnLPercent": 42.817097166155094,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x275ae4a727da72b22bcc6451b8c9deb493eadcd3e9dca1736a49c92434fad510",
+            "tokenId": "40753609047947305913937076590095912489064918428039596422515836383859662528606",
+            "title": "Ethereum Up or Down - April 29, 7:30PM-7:35PM ET",
+            "outcome": "Down",
+            "size": 887.7299999999993,
+            "avgPrice": 0.3248676962589982,
+            "timestamp": "2026-04-29T23:31:29.200Z"
+          },
+          "costBasis": 288.39480000000026,
+          "currentValue": 288.39480000000026,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 827.3708856884413,
+      "totalCurrentValue": 1058.1448000000005,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 230.77391431155922,
+      "totalPnL": 230.77391431155922,
+      "totalPnLPercent": 27.892438361489617,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -57.620885688441035,
+    "pnlPercent": -6.9643356667663845,
+    "sharesUp": 769.7500000000001,
+    "sharesDown": 887.7299999999993,
+    "timestamp": 1777505690756
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:35PM-7:40PM ET",
+    "conditionId": "0x0546f09e32a6fa8e39efcdf91b23254b46df1fb541470695db73a9d17f8d7ffc",
+    "marketPnL": {
+      "conditionId": "0x0546f09e32a6fa8e39efcdf91b23254b46df1fb541470695db73a9d17f8d7ffc",
+      "marketName": "Ethereum Up or Down - April 29, 7:35PM-7:40PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x0546f09e32a6fa8e39efcdf91b23254b46df1fb541470695db73a9d17f8d7ffc",
+            "tokenId": "12069401547914073393289524000250443536454899531848280618277016736639768757775",
+            "title": "Ethereum Up or Down - April 29, 7:35PM-7:40PM ET",
+            "outcome": "Up",
+            "size": 614.9600000000002,
+            "avgPrice": 0.2428031091453103,
+            "timestamp": "2026-04-29T23:39:58.173Z"
+          },
+          "costBasis": 134.77460000000005,
+          "currentValue": 134.77460000000005,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x0546f09e32a6fa8e39efcdf91b23254b46df1fb541470695db73a9d17f8d7ffc",
+            "tokenId": "54143934961397270024610330812542613265077641913341681018483518308398992263667",
+            "title": "Ethereum Up or Down - April 29, 7:35PM-7:40PM ET",
+            "outcome": "Down",
+            "size": 340.83,
+            "avgPrice": 0.7521990435114281,
+            "timestamp": "2026-04-29T23:39:58.217Z"
+          },
+          "costBasis": 254.0298,
+          "currentValue": 336.84000000000003,
+          "unrealizedPnL": 82.81020000000004,
+          "unrealizedPnLPercent": 32.59861638280235,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 388.80440000000004,
+      "totalCurrentValue": 471.6146000000001,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 82.81020000000007,
+      "totalPnL": 82.81020000000007,
+      "totalPnLPercent": 21.29867871865649,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": -59.44749999999999,
+    "pnlPercent": -15.98921455900053,
+    "sharesUp": 589.6100000000001,
+    "sharesDown": 312.34999999999997,
+    "timestamp": 1777505991186
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:35PM-7:40PM ET",
+    "conditionId": "0xdfc2f96c67d9a99099d6c4ce69759a8d38c856a890595037c33bfbc7a6864259",
+    "marketPnL": {
+      "conditionId": "0xdfc2f96c67d9a99099d6c4ce69759a8d38c856a890595037c33bfbc7a6864259",
+      "marketName": "Bitcoin Up or Down - April 29, 7:35PM-7:40PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xdfc2f96c67d9a99099d6c4ce69759a8d38c856a890595037c33bfbc7a6864259",
+            "tokenId": "31542406484985527925960170090952413127931827896719771575309716635568458660788",
+            "title": "Bitcoin Up or Down - April 29, 7:35PM-7:40PM ET",
+            "outcome": "Up",
+            "size": 1413.5599999999997,
+            "avgPrice": 0.5223723789580917,
+            "timestamp": "2026-04-29T23:39:54.641Z"
+          },
+          "costBasis": 730.6479,
+          "currentValue": 1405.4799999999998,
+          "unrealizedPnL": 674.8320999999997,
+          "unrealizedPnLPercent": 92.36078006930558,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xdfc2f96c67d9a99099d6c4ce69759a8d38c856a890595037c33bfbc7a6864259",
+            "tokenId": "70444685624622338451949430371434987473046022807485380554847976919530828791029",
+            "title": "Bitcoin Up or Down - April 29, 7:35PM-7:40PM ET",
+            "outcome": "Down",
+            "size": 1143.9200000000003,
+            "avgPrice": 0.5451984404503812,
+            "timestamp": "2026-04-29T23:39:13.770Z"
+          },
+          "costBasis": 623.6634000000003,
+          "currentValue": 623.6634000000003,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1354.3113000000003,
+      "totalCurrentValue": 2029.1434,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 674.8320999999996,
+      "totalPnL": 674.8320999999996,
+      "totalPnLPercent": 49.82843309363213,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": 41.2700999999995,
+    "pnlPercent": 3.128252982956671,
+    "sharesUp": 1360.5399999999997,
+    "sharesDown": 1113.9200000000003,
+    "timestamp": 1777505991206
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:30PM-7:45PM ET",
+    "conditionId": "0x9194472d8154b2644a1b12b6e8b3178091095df8d84b91c7598b68ae6c6ec00e",
+    "marketPnL": {
+      "totalPnl": -380.69209999999885,
+      "pnlPercent": -13.212410372307865,
+      "positions": [],
+      "totalCostBasis": 2881.3221000000003
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -380.69209999999885,
+    "pnlPercent": -13.212410372307865,
+    "sharesUp": 2500.630000000002,
+    "sharesDown": 4053.099999999995,
+    "timestamp": 1777506290164
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:30PM-7:45PM ET",
+    "conditionId": "0x4797296e7685c30584c915792a63497d1eb8c086e36bbbd9d5b477062d709d4c",
+    "marketPnL": {
+      "totalPnl": -251.05769999999256,
+      "pnlPercent": -6.2494951456439445,
+      "positions": [],
+      "totalCostBasis": 4017.247699999993
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -251.05769999999256,
+    "pnlPercent": -6.2494951456439445,
+    "sharesUp": 3766.19,
+    "sharesDown": 4570.880000000004,
+    "timestamp": 1777506290182
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:40PM-7:45PM ET",
+    "conditionId": "0xaeb9f8bdff6554e0a975de241eae1b7bed8092d2b793bf2e810bb224fdb10cdc",
+    "marketPnL": {
+      "conditionId": "0xaeb9f8bdff6554e0a975de241eae1b7bed8092d2b793bf2e810bb224fdb10cdc",
+      "marketName": "Bitcoin Up or Down - April 29, 7:40PM-7:45PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xaeb9f8bdff6554e0a975de241eae1b7bed8092d2b793bf2e810bb224fdb10cdc",
+            "tokenId": "27803715552774616470408351386998626592056779961482357529894160655732806891267",
+            "title": "Bitcoin Up or Down - April 29, 7:40PM-7:45PM ET",
+            "outcome": "Up",
+            "size": 1246.4799999999998,
+            "avgPrice": 0.5342903215454724,
+            "timestamp": "2026-04-29T23:44:50.083Z"
+          },
+          "costBasis": 665.9822000000004,
+          "currentValue": 1246.4799999999998,
+          "unrealizedPnL": 580.4977999999994,
+          "unrealizedPnLPercent": 87.16416144455499,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xaeb9f8bdff6554e0a975de241eae1b7bed8092d2b793bf2e810bb224fdb10cdc",
+            "tokenId": "7488574618137756566594557979148099747014163810494817423363430713832560005847",
+            "title": "Bitcoin Up or Down - April 29, 7:40PM-7:45PM ET",
+            "outcome": "Down",
+            "size": 1495.8600000000001,
+            "avgPrice": 0.5064711269771233,
+            "timestamp": "2026-04-29T23:44:50.110Z"
+          },
+          "costBasis": 757.6098999999997,
+          "currentValue": 757.6098999999997,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1423.5921,
+      "totalCurrentValue": 2004.0898999999995,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 580.4977999999994,
+      "totalPnL": 580.4977999999994,
+      "totalPnLPercent": 40.77697537096471,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -177.0926000000004,
+    "pnlPercent": -12.439574926669497,
+    "sharesUp": 1246.5299999999997,
+    "sharesDown": 1495.8600000000001,
+    "timestamp": 1777506290214
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:40PM-7:45PM ET",
+    "conditionId": "0x49662991994090545df9130f341ba901d34101a94f05dc288ceaff1202e765d9",
+    "marketPnL": {
+      "conditionId": "0x49662991994090545df9130f341ba901d34101a94f05dc288ceaff1202e765d9",
+      "marketName": "Ethereum Up or Down - April 29, 7:40PM-7:45PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x49662991994090545df9130f341ba901d34101a94f05dc288ceaff1202e765d9",
+            "tokenId": "76303273310783706039675831292326767946285297246297391853432834076684735193280",
+            "title": "Ethereum Up or Down - April 29, 7:40PM-7:45PM ET",
+            "outcome": "Up",
+            "size": 1097.2400000000005,
+            "avgPrice": 0.5504444788742658,
+            "timestamp": "2026-04-29T23:44:52.416Z"
+          },
+          "costBasis": 595.7768999999996,
+          "currentValue": 1088.8800000000006,
+          "unrealizedPnL": 493.10310000000095,
+          "unrealizedPnLPercent": 82.76640131566049,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x49662991994090545df9130f341ba901d34101a94f05dc288ceaff1202e765d9",
+            "tokenId": "6161549803501677599977833704369393210473141897312086327587445249243730240369",
+            "title": "Ethereum Up or Down - April 29, 7:40PM-7:45PM ET",
+            "outcome": "Down",
+            "size": 1053.09,
+            "avgPrice": 0.5039326173451459,
+            "timestamp": "2026-04-29T23:44:14.314Z"
+          },
+          "costBasis": 530.6863999999997,
+          "currentValue": 530.6863999999997,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1126.4632999999994,
+      "totalCurrentValue": 1619.5664000000002,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 493.1031000000007,
+      "totalPnL": 493.1031000000007,
+      "totalPnLPercent": 43.77444875478864,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -37.583299999999326,
+    "pnlPercent": -3.336398087713939,
+    "sharesUp": 1088.8800000000006,
+    "sharesDown": 1053.09,
+    "timestamp": 1777506290254
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:45PM-7:50PM ET",
+    "conditionId": "0xd2ec0afdbdabe0e4799bef2a73ac7bf5bd7a5ef91b780ca182aafa639af2a442",
+    "marketPnL": {
+      "conditionId": "0xd2ec0afdbdabe0e4799bef2a73ac7bf5bd7a5ef91b780ca182aafa639af2a442",
+      "marketName": "Bitcoin Up or Down - April 29, 7:45PM-7:50PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xd2ec0afdbdabe0e4799bef2a73ac7bf5bd7a5ef91b780ca182aafa639af2a442",
+            "tokenId": "15789251946204990137494996575216625685833535744431543705757912335967934880091",
+            "title": "Bitcoin Up or Down - April 29, 7:45PM-7:50PM ET",
+            "outcome": "Up",
+            "size": 1486.0099999999995,
+            "avgPrice": 0.46162085046534,
+            "timestamp": "2026-04-29T23:49:16.546Z"
+          },
+          "costBasis": 685.9731999999997,
+          "currentValue": 685.9731999999997,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xd2ec0afdbdabe0e4799bef2a73ac7bf5bd7a5ef91b780ca182aafa639af2a442",
+            "tokenId": "30944178000614829925327386341778680489003900668670843309227747420445014567450",
+            "title": "Bitcoin Up or Down - April 29, 7:45PM-7:50PM ET",
+            "outcome": "Down",
+            "size": 1763.9699999999993,
+            "avgPrice": 0.5813352139747866,
+            "timestamp": "2026-04-29T23:49:58.460Z"
+          },
+          "costBasis": 1007.4896895695358,
+          "currentValue": 1745.6899999999996,
+          "unrealizedPnL": 738.2003104304638,
+          "unrealizedPnLPercent": 73.27125211036852,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1693.4628895695355,
+      "totalCurrentValue": 2431.663199999999,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 738.2003104304636,
+      "totalPnL": 738.2003104304636,
+      "totalPnLPercent": 43.59117137890799,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": 52.22711043046411,
+    "pnlPercent": 3.084042216227119,
+    "sharesUp": 1486.0099999999995,
+    "sharesDown": 1745.6899999999996,
+    "timestamp": 1777506590462
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:45PM-7:50PM ET",
+    "conditionId": "0x81158a981e99c1163ecb3f1706e56aa95a5c81c77c7c1b71c6e81be6cc3598db",
+    "marketPnL": {
+      "conditionId": "0x81158a981e99c1163ecb3f1706e56aa95a5c81c77c7c1b71c6e81be6cc3598db",
+      "marketName": "Ethereum Up or Down - April 29, 7:45PM-7:50PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x81158a981e99c1163ecb3f1706e56aa95a5c81c77c7c1b71c6e81be6cc3598db",
+            "tokenId": "97734368459701910023094753924795344246581791027100480182872728505713686523135",
+            "title": "Ethereum Up or Down - April 29, 7:45PM-7:50PM ET",
+            "outcome": "Up",
+            "size": 1054.86,
+            "avgPrice": 0.4772107199059589,
+            "timestamp": "2026-04-29T23:49:56.175Z"
+          },
+          "costBasis": 494.8082999999998,
+          "currentValue": 494.8082999999998,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x81158a981e99c1163ecb3f1706e56aa95a5c81c77c7c1b71c6e81be6cc3598db",
+            "tokenId": "46958943520732042608604970945057167823891391582058380902811457381618477022639",
+            "title": "Ethereum Up or Down - April 29, 7:45PM-7:50PM ET",
+            "outcome": "Down",
+            "size": 1250.5699999999997,
+            "avgPrice": 0.5621851635654144,
+            "timestamp": "2026-04-29T23:49:56.198Z"
+          },
+          "costBasis": 700.8769000000001,
+          "currentValue": 1243.3199999999997,
+          "unrealizedPnL": 542.4430999999996,
+          "unrealizedPnLPercent": 77.39491770951497,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1195.6852,
+      "totalCurrentValue": 1738.1282999999994,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 542.4430999999995,
+      "totalPnL": 542.4430999999995,
+      "totalPnLPercent": 45.36671525247611,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": 34.800500000000284,
+    "pnlPercent": 2.9873994503435926,
+    "sharesUp": 1045.7299999999998,
+    "sharesDown": 1199.71,
+    "timestamp": 1777506590497
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:50PM-7:55PM ET",
+    "conditionId": "0x5618d7d5ab0bf17074deb047ba5aa1b7b8e9cd8e4b5ef62e55b517dc791622a5",
+    "marketPnL": {
+      "conditionId": "0x5618d7d5ab0bf17074deb047ba5aa1b7b8e9cd8e4b5ef62e55b517dc791622a5",
+      "marketName": "Bitcoin Up or Down - April 29, 7:50PM-7:55PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x5618d7d5ab0bf17074deb047ba5aa1b7b8e9cd8e4b5ef62e55b517dc791622a5",
+            "tokenId": "9557761474355249805580679405078889038521868032875310826360307151093105055568",
+            "title": "Bitcoin Up or Down - April 29, 7:50PM-7:55PM ET",
+            "outcome": "Up",
+            "size": 1276.8899999999999,
+            "avgPrice": 0.6083526380502627,
+            "timestamp": "2026-04-29T23:54:55.299Z"
+          },
+          "costBasis": 774.8562999999999,
+          "currentValue": 1273.71,
+          "unrealizedPnL": 498.8537000000001,
+          "unrealizedPnLPercent": 64.38015668195511,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x5618d7d5ab0bf17074deb047ba5aa1b7b8e9cd8e4b5ef62e55b517dc791622a5",
+            "tokenId": "71374300668857843156458816066711264815349551614101553899985589986318285413174",
+            "title": "Bitcoin Up or Down - April 29, 7:50PM-7:55PM ET",
+            "outcome": "Down",
+            "size": 1150.49,
+            "avgPrice": 0.4384418812853656,
+            "timestamp": "2026-04-29T23:54:55.337Z"
+          },
+          "costBasis": 497.92650000000026,
+          "currentValue": 497.92650000000026,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1272.7828000000002,
+      "totalCurrentValue": 1771.6365000000003,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 498.8537000000001,
+      "totalPnL": 498.8537000000001,
+      "totalPnLPercent": 39.19393788162442,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": 0.927199999999857,
+    "pnlPercent": 0.0728482503063254,
+    "sharesUp": 1273.71,
+    "sharesDown": 1141.34,
+    "timestamp": 1777506890672
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:50PM-7:55PM ET",
+    "conditionId": "0x3fe87682d558249711c1c183309d8071f51889a944b02633ee560f45888ae164",
+    "marketPnL": {
+      "conditionId": "0x3fe87682d558249711c1c183309d8071f51889a944b02633ee560f45888ae164",
+      "marketName": "Ethereum Up or Down - April 29, 7:50PM-7:55PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x3fe87682d558249711c1c183309d8071f51889a944b02633ee560f45888ae164",
+            "tokenId": "59579521531507440528003673075864528916948614678102150347347715484606447726683",
+            "title": "Ethereum Up or Down - April 29, 7:50PM-7:55PM ET",
+            "outcome": "Up",
+            "size": 1258.44,
+            "avgPrice": 0.5206819554368901,
+            "timestamp": "2026-04-29T23:54:57.626Z"
+          },
+          "costBasis": 646.4674,
+          "currentValue": 646.4674,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x3fe87682d558249711c1c183309d8071f51889a944b02633ee560f45888ae164",
+            "tokenId": "5076528480089665609927190410084674849884110155144963426790810891066252025253",
+            "title": "Ethereum Up or Down - April 29, 7:50PM-7:55PM ET",
+            "outcome": "Down",
+            "size": 1211.3500000000001,
+            "avgPrice": 0.5306584389317699,
+            "timestamp": "2026-04-29T23:54:51.806Z"
+          },
+          "costBasis": 638.0034999999995,
+          "currentValue": 1206.3400000000001,
+          "unrealizedPnL": 568.3365000000007,
+          "unrealizedPnLPercent": 89.08046742690301,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1284.4708999999993,
+      "totalCurrentValue": 1852.8074000000001,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 568.3365000000008,
+      "totalPnL": 568.3365000000008,
+      "totalPnLPercent": 44.24674003903094,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": -78.13089999999966,
+    "pnlPercent": -6.082730251031741,
+    "sharesUp": 1249.1000000000001,
+    "sharesDown": 1206.3400000000001,
+    "timestamp": 1777506890696
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:45PM-8:00PM ET",
+    "conditionId": "0xf2adb4c5fa1a8018aed41e05c9de517002a4c7debe07cd1b99187f9b7530bb57",
+    "marketPnL": {
+      "conditionId": "0xf2adb4c5fa1a8018aed41e05c9de517002a4c7debe07cd1b99187f9b7530bb57",
+      "marketName": "Bitcoin Up or Down - April 29, 7:45PM-8:00PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xf2adb4c5fa1a8018aed41e05c9de517002a4c7debe07cd1b99187f9b7530bb57",
+            "tokenId": "13084067434970560230388484272765965442954837844509195002676509844962229264627",
+            "title": "Bitcoin Up or Down - April 29, 7:45PM-8:00PM ET",
+            "outcome": "Down",
+            "size": 314.41,
+            "avgPrice": 0.8549286552238989,
+            "timestamp": "2026-04-29T23:59:32.948Z"
+          },
+          "costBasis": 268.7981184889461,
+          "currentValue": 268.7981184889461,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xf2adb4c5fa1a8018aed41e05c9de517002a4c7debe07cd1b99187f9b7530bb57",
+            "tokenId": "104836386789816831696571784205308508749549178828213217790865411149950741981128",
+            "title": "Bitcoin Up or Down - April 29, 7:45PM-8:00PM ET",
+            "outcome": "Up",
+            "size": 523.2,
+            "avgPrice": 0.18080504587155966,
+            "timestamp": "2026-04-29T23:56:42.548Z"
+          },
+          "costBasis": 94.59720000000002,
+          "currentValue": 523.2,
+          "unrealizedPnL": 428.6028,
+          "unrealizedPnLPercent": 453.0819094011239,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 363.39531848894615,
+      "totalCurrentValue": 791.9981184889461,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 428.6028,
+      "totalPnL": 428.6028,
+      "totalPnLPercent": 117.94395199756471,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": 174.92448151106692,
+    "pnlPercent": 3.251689324953686,
+    "sharesUp": 5554.42000000001,
+    "sharesDown": 5178.410000000005,
+    "timestamp": 1777507190985
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:45PM-8:00PM ET",
+    "conditionId": "0xc4410a303693a617c0ca41b6d1828a260b14c2809942485747a82cc379856b2c",
+    "marketPnL": {
+      "conditionId": "0xc4410a303693a617c0ca41b6d1828a260b14c2809942485747a82cc379856b2c",
+      "marketName": "Ethereum Up or Down - April 29, 7:45PM-8:00PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xc4410a303693a617c0ca41b6d1828a260b14c2809942485747a82cc379856b2c",
+            "tokenId": "72119208242201714130445564589840521776506715086692702123767490764666632524815",
+            "title": "Ethereum Up or Down - April 29, 7:45PM-8:00PM ET",
+            "outcome": "Down",
+            "size": 7.16,
+            "avgPrice": 0.92,
+            "timestamp": "2026-04-29T23:55:02.301Z"
+          },
+          "costBasis": 6.5872,
+          "currentValue": 6.5872,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 6.5872,
+      "totalCurrentValue": 6.5872,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 0,
+      "totalPnL": 0,
+      "totalPnLPercent": 0,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": 542.2986000000064,
+    "pnlPercent": 11.62864641991815,
+    "sharesUp": 5205.770000000003,
+    "sharesDown": 4422.689999999999,
+    "timestamp": 1777507191009
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7PM ET",
+    "conditionId": "0x916fb901d040e5ee70a5d8171e0fee97cdc6454e5cdd1315f2a76549fab5954e",
+    "marketPnL": {
+      "totalPnl": -16.201199999987693,
+      "pnlPercent": -0.3454294918474804,
+      "positions": [],
+      "totalCostBasis": 4690.161200000001
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": -16.201199999987693,
+    "pnlPercent": -0.3454294918474804,
+    "sharesUp": 4709.589999999992,
+    "sharesDown": 4673.960000000014,
+    "timestamp": 1777507191025
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7PM ET",
+    "conditionId": "0x136fd861385844469cc21c890ca2da1ea97e7f1401fd8914cab618bfa66770b6",
+    "marketPnL": {
+      "totalPnl": -507.19210000001203,
+      "pnlPercent": -7.127015926894612,
+      "positions": [],
+      "totalCostBasis": 7116.472100000008
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": -507.19210000001203,
+    "pnlPercent": -7.127015926894612,
+    "sharesUp": 8230.70999999998,
+    "sharesDown": 6609.279999999996,
+    "timestamp": 1777507191040
+  },
+  {
+    "marketName": "Ethereum Up or Down - April 29, 7:55PM-8:00PM ET",
+    "conditionId": "0x302b062faf74cef06a6191bbf4ccd05ed81c14eaaa6c066f39d088743607e7e4",
+    "marketPnL": {
+      "conditionId": "0x302b062faf74cef06a6191bbf4ccd05ed81c14eaaa6c066f39d088743607e7e4",
+      "marketName": "Ethereum Up or Down - April 29, 7:55PM-8:00PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0x302b062faf74cef06a6191bbf4ccd05ed81c14eaaa6c066f39d088743607e7e4",
+            "tokenId": "44402801740328504935073572762479744418725970481082241955012722028428222820594",
+            "title": "Ethereum Up or Down - April 29, 7:55PM-8:00PM ET",
+            "outcome": "Up",
+            "size": 1652.5700000000004,
+            "avgPrice": 0.5125603151455005,
+            "timestamp": "2026-04-29T23:59:21.067Z"
+          },
+          "costBasis": 847.0418,
+          "currentValue": 847.0418,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0x302b062faf74cef06a6191bbf4ccd05ed81c14eaaa6c066f39d088743607e7e4",
+            "tokenId": "19414662074783696643824031874979624749718438330379344253695217116685177160878",
+            "title": "Ethereum Up or Down - April 29, 7:55PM-8:00PM ET",
+            "outcome": "Down",
+            "size": 1781.52,
+            "avgPrice": 0.5353574475728589,
+            "timestamp": "2026-04-29T23:59:44.092Z"
+          },
+          "costBasis": 953.7499999999995,
+          "currentValue": 1781.52,
+          "unrealizedPnL": 827.7700000000004,
+          "unrealizedPnLPercent": 86.79108781127138,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1800.7917999999995,
+      "totalCurrentValue": 2628.5618,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 827.7700000000004,
+      "totalPnL": 827.7700000000004,
+      "totalPnLPercent": 45.967001848853414,
+      "totalFees": 0
+    },
+    "priceUp": 0,
+    "priceDown": 1,
+    "totalPnl": -26.904100000000426,
+    "pnlPercent": -1.5221003866281524,
+    "sharesUp": 1637.4200000000005,
+    "sharesDown": 1740.6599999999999,
+    "timestamp": 1777507191059
+  },
+  {
+    "marketName": "Bitcoin Up or Down - April 29, 7:55PM-8:00PM ET",
+    "conditionId": "0xe6dc52d2cedb19854a01600344ed607a8ec1ced2b46acf1398133e766e870a1c",
+    "marketPnL": {
+      "conditionId": "0xe6dc52d2cedb19854a01600344ed607a8ec1ced2b46acf1398133e766e870a1c",
+      "marketName": "Bitcoin Up or Down - April 29, 7:55PM-8:00PM ET",
+      "positions": [
+        {
+          "position": {
+            "conditionId": "0xe6dc52d2cedb19854a01600344ed607a8ec1ced2b46acf1398133e766e870a1c",
+            "tokenId": "41105126556997493422220456454742308606162350880510701388658461720045598426230",
+            "title": "Bitcoin Up or Down - April 29, 7:55PM-8:00PM ET",
+            "outcome": "Up",
+            "size": 1298.500000000001,
+            "avgPrice": 0.49731451675009597,
+            "timestamp": "2026-04-29T23:59:09.206Z"
+          },
+          "costBasis": 645.7629000000001,
+          "currentValue": 1298.500000000001,
+          "unrealizedPnL": 652.7371000000009,
+          "unrealizedPnLPercent": 101.079993911078,
+          "fees": 0
+        },
+        {
+          "position": {
+            "conditionId": "0xe6dc52d2cedb19854a01600344ed607a8ec1ced2b46acf1398133e766e870a1c",
+            "tokenId": "2408221446236544735751048807885113959625330643224328066977560879278123290687",
+            "title": "Bitcoin Up or Down - April 29, 7:55PM-8:00PM ET",
+            "outcome": "Down",
+            "size": 1422.9100000000003,
+            "avgPrice": 0.5287915609560687,
+            "timestamp": "2026-04-29T23:59:44.067Z"
+          },
+          "costBasis": 752.4227999999999,
+          "currentValue": 752.4227999999999,
+          "unrealizedPnL": 0,
+          "unrealizedPnLPercent": 0,
+          "fees": 0
+        }
+      ],
+      "totalCostBasis": 1398.1857,
+      "totalCurrentValue": 2050.9228000000007,
+      "totalRealizedPnL": 0,
+      "totalUnrealizedPnL": 652.7371000000007,
+      "totalPnL": 652.7371000000007,
+      "totalPnLPercent": 46.684578450487706,
+      "totalFees": 0
+    },
+    "priceUp": 1,
+    "priceDown": 0,
+    "totalPnl": -89.95069999999919,
+    "pnlPercent": -6.548962450747503,
+    "sharesUp": 1283.5600000000009,
+    "sharesDown": 1392.42,
+    "timestamp": 1777507191078
+  }
+]

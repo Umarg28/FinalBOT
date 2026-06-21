@@ -149,10 +149,57 @@ bell_curve_enabled: true
 bell_curve_peak_multiplier: 1.50
 # Trade size multiplier at price 0.50 (e.g. 1.25-2.0)
 # Example: 1.50 = 50% bigger trades at balanced prices
+# 2026-04-28: Rolled back from 1.35 → 1.50 (1.35 reduced central trade size,
+#             which combined with other changes starved winning-side accumulation).
 
 bell_curve_extreme_multiplier: 0.25
 # Trade size multiplier at price 0.10 or 0.90 (e.g. 0.20-0.50)
 # Example: 0.25 = 75% smaller trades at extreme prices (safer)
+
+# ----------------------------------------------------------------------------
+# 3d. TIME-WEIGHTED SIZING (match copy-bot quartile shape)
+# ----------------------------------------------------------------------------
+# Adjust trade sizes based on market progress (time elapsed since start)
+# Q1 (0-25%): Normal sizing
+# Q2 (25-50%): Slightly reduced
+# Q3 (50-75%): Boosted (peak activity)
+# Q4 (75-100%): Reduced (downshift)
+
+time_weighting_enabled: true
+# Enable time-weighted sizing (true/false)
+# When enabled, trade sizes are multiplied based on market progress quartile
+
+q1_multiplier: 1.00
+# Multiplier for first quartile (0-25% of market duration)
+# Example: 1.00 = normal sizing at market start
+
+q2_multiplier: 0.95
+# Multiplier for second quartile (25-50% of market duration)
+# Example: 0.95 = 5% reduction in trade sizes
+
+q3_multiplier: 1.45
+# Multiplier for third quartile (50-75% of market duration) - peak
+# Example: 1.45 = 45% boost to trade sizes during middle period
+# 2026-04-28: Rolled back from 1.25 → 1.45 (default). Q3 is when the market
+#             starts tilting decisively; under-sizing here means we miss the
+#             window to load up on the winning side. Confirmed by losing 15-min
+#             markets where bot under-accumulated winner during 7-11min mark.
+
+q4_multiplier: 1.00
+# Multiplier for fourth quartile (75-100% of market duration) - downshift
+# Example: 1.00 = full sizing in Q4 (close_size_multiplier still backstops final minute)
+# 2026-04-29: Tuned 0.80 → 1.00. Yesterday's 326-market session showed losing
+#             markets had HIGHER tilt-to-winner (74.9%) than winning markets
+#             (72.2%) — the bot is picking the right side but under-accumulating
+#             on it. Q4 is when the trend is most certain; full sizing here
+#             extracts more from confirmed winners. close_size_multiplier=0.60
+#             still kicks in for the final minute as a hard backstop.
+# 2026-04-28: Tuned 0.50 → 0.80. EDGE/TREND/STOP gates already protect from
+#             buying the loser in Q4; halving size purely starves winner-side
+#             accumulation exactly when the market is most tilted (per strategy
+#             intent: "buy the winning side more as the market tilts"). The
+#             existing close_size_multiplier (0.60 in last minute) provides
+#             additional risk control near close.
 
 # ----------------------------------------------------------------------------
 # 4. PRICE / EXECUTION SAFETY (avoid bad fills)
@@ -184,11 +231,18 @@ max_inventory_imbalance_ratio: 1.5
 # Limits how lopsided you're allowed to get (e.g. 1.1-2.0)
 # Core safety for fast recovery on reversals
 # Example: 1.5 = max YES/NO ratio of 1.5:1 (or 1:1.5)
+# 2026-04-28: Rolled back from 1.4 → 1.5. The 1.4 cap stopped the bot from
+#             leaning hard enough on the winning side during sustained tilts
+#             (directly contradicts "buy the winning side more" strategy).
+#             Effective lean cap with stop_add=0.80: 0.80 × 1.5 = 1.2:1.
 
 stop_add_threshold: 0.80
 # When you approach the imbalance limit, stop adding to heavy side (0-1)
 # Expressed as fraction of max_inventory_imbalance_ratio
 # Example: 0.80 = stop adding when you reach 80% of max imbalance
+# 2026-04-28: Rolled back from 0.75 → 0.80. With 0.75 × 1.4 = 1.05:1 the bot
+#             could barely tilt at all before stopping adds to the winning side.
+#             Restored to 0.80 × 1.5 = 1.2:1 effective lean cap.
 
 reduce_only_mode: false
 # If true, once too imbalanced you only trade to reduce risk
@@ -262,15 +316,26 @@ price_stop_threshold: 0.85
 # When price >= this, STOP trading the losing side completely (e.g. 0.85-0.95)
 # 0.85 = once it's basically decided, stop feeding the loser
 
-edge_threshold: 0.58
+edge_threshold: 0.55
 # REGIME EDGE gate - blocks losing-side FALLBACK trades when price >= this (e.g. 0.55-0.65)
 # This prevents fallback from buying the loser when price is drifting away from 0.50
-# 0.58 = early trend detection, block losing-side fallback before TREND engages
+# 0.55 = early trend detection, block losing-side fallback before TREND engages
+# 2026-04-29: Tightened 0.58 → 0.55. Yesterday's losing markets showed 31% had
+#             loser-side avg cost at $0.40-0.50 (winner at $0.50-0.60). Those
+#             buys happened in the gap between 0.50 and the previous EDGE
+#             threshold of 0.58. Tightening to 0.55 cuts loser size into the
+#             zone where the bleed is concentrated.
 
-trend_threshold: 0.65
+trend_threshold: 0.60
 # REGIME TREND gate - zeros losing side when price >= this (e.g. 0.60-0.75)
 # SEPARATE from tilt_threshold so you can tune them independently
-# 0.65 = when a clear trend emerges, stop adding to loser (unless in FLIP_RECOVERY)
+# 0.60 = when a clear trend emerges, stop adding to loser (unless in FLIP_RECOVERY)
+# 2026-04-29: Tightened 0.65 → 0.60. The biggest single bleed pattern from
+#             yesterday's run was 37% of losing markets having loser-side avg
+#             cost at $0.30-0.40 (i.e. winner at $0.60-0.70). Those buys were
+#             happening in EDGE zone at reduced size, but they still added up.
+#             Zeroing the loser at 0.60 closes that gap entirely. Note: tilt
+#             still triggers at 0.65, so winner gets a second-stage boost.
 
 # ----------------------------------------------------------------------------
 # 6c. LATE ENTRY PROTECTION
@@ -338,6 +403,9 @@ flip_response_multiplier: 1.5
 # Boosts rebalance_strength temporarily after detected flip (e.g. 1.0-3.0)
 # Faster recovery after market flips
 # Example: 1.5 = use 1.5x normal rebalance strength after flip
+# 2026-04-28: Rolled back from 1.8 → 1.5. The 1.8 setting overreacted to noisy
+#             flips, eating profits via whipsaws (oversized rebalances on
+#             temporary direction changes that didn't sustain).
 
 post_flip_cooldown_sec: 15
 # Duration of FLIP_RECOVERY mode in seconds (e.g. 5-30)
@@ -373,6 +441,9 @@ flip_recovery_rebalance_strength_k: 1.4
 # Rebalance strength during flip recovery (default normal: 0.8)
 # Higher = more aggressive snap-back to target ratio
 # Example: 1.4 = move 140% of the way to target (overshoots slightly)
+# 2026-04-28: Rolled back from 1.6 → 1.4. Same reasoning as flip_response_multiplier:
+#             1.6 over-corrected on noisy flips, dumping winning-side inventory
+#             before the flip was confirmed to be real.
 
 flip_recovery_max_rebalance_step_pct: 0.40
 # Max bankroll % per rebalance during flip recovery (default normal: 0.25)

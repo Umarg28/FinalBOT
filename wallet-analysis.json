@@ -1,0 +1,701 @@
+{
+  "wallet": "0xe1d6b51521bd4365769199f392f9818661bd907c",
+  "hoursBack": 48,
+  "generatedAt": "2026-04-29T01:57:29.032Z",
+  "totalsByType": {
+    "5m": {
+      "mkts": 32,
+      "pnl": 2278.9001050000024,
+      "inv": 43130.315925999996
+    },
+    "15m": {
+      "mkts": 24,
+      "pnl": 428.37884099999906,
+      "inv": 18556.337706000002
+    },
+    "hourly": {
+      "mkts": 6,
+      "pnl": 573.2299009999988,
+      "inv": 24549.793827000005
+    }
+  },
+  "inventoryRatio": {
+    "median": 0.5513788649797906,
+    "p25": 0.27961694254994135,
+    "p75": 0.6930114815244389
+  },
+  "stopThreshold": {
+    "median": 0.84,
+    "p75": 0.8937930752818063,
+    "p90": 0.93
+  },
+  "tradeSize": {
+    "median": 14.597199999999999,
+    "p75": 37.5,
+    "p95": 138.59999900000003
+  },
+  "quartileTrades": [
+    444,
+    532,
+    617,
+    513
+  ],
+  "quartileSize": [
+    18673.028025999996,
+    16109.75467999999,
+    21321.098214000012,
+    30132.566538999985
+  ],
+  "winnerBuyDist": {
+    "median": 0.63916099179326,
+    "p25": 0.48515940226422694,
+    "p75": 0.752218589444185
+  },
+  "loserBuyDist": {
+    "median": 0.4072948749060523,
+    "p25": 0.25161290322580643,
+    "p75": 0.53
+  },
+  "entryLatencyByType": {
+    "5m": {
+      "median": 0.05333333333333334,
+      "p25": 0.04666666666666667,
+      "p75": 0.11333333333333333,
+      "n": 32
+    },
+    "15m": {
+      "median": 0.03666666666666667,
+      "p25": 0.015555555555555555,
+      "p75": 0.18222222222222223,
+      "n": 24
+    },
+    "hourly": {
+      "median": 0.021944444444444444,
+      "p25": 0.0033333333333333335,
+      "p75": 0.9260232076380178,
+      "n": 6
+    }
+  },
+  "perMarket": [
+    {
+      "slug": "btc-updown-4h-1777406400",
+      "type": "hourly",
+      "pnl": 1450.448233999999,
+      "invested": 14596.325743000003,
+      "upBuyCost": 10522.496975000002,
+      "downBuyCost": 4073.8287680000017,
+      "upWon": true,
+      "tradeCount": 148
+    },
+    {
+      "slug": "btc-updown-5m-1777420200",
+      "type": "5m",
+      "pnl": 700.7826060000007,
+      "invested": 3364.4757819999995,
+      "upBuyCost": 2181.508891,
+      "downBuyCost": 1182.9668909999996,
+      "upWon": true,
+      "tradeCount": 54
+    },
+    {
+      "slug": "btc-updown-15m-1777420800",
+      "type": "15m",
+      "pnl": 642.025413999999,
+      "invested": 4078.6242760000005,
+      "upBuyCost": 1046.2519960000002,
+      "downBuyCost": 3032.37228,
+      "upWon": false,
+      "tradeCount": 96
+    },
+    {
+      "slug": "btc-updown-5m-1777420800",
+      "type": "5m",
+      "pnl": 545.2486839999998,
+      "invested": 3067.4339950000003,
+      "upBuyCost": 2504.307998,
+      "downBuyCost": 563.125997,
+      "upWon": true,
+      "tradeCount": 43
+    },
+    {
+      "slug": "btc-updown-5m-1777418700",
+      "type": "5m",
+      "pnl": 457.7556230000001,
+      "invested": 1501.4078840000002,
+      "upBuyCost": 113.548997,
+      "downBuyCost": 1387.858887,
+      "upWon": false,
+      "tradeCount": 26
+    },
+    {
+      "slug": "btc-updown-15m-1777422600",
+      "type": "15m",
+      "pnl": 383.24716500000034,
+      "invested": 2470.352399,
+      "upBuyCost": 2275.031099,
+      "downBuyCost": 195.32129999999995,
+      "upWon": true,
+      "tradeCount": 31
+    },
+    {
+      "slug": "btc-updown-5m-1777418400",
+      "type": "5m",
+      "pnl": 314.9419129999998,
+      "invested": 2806.7967710000003,
+      "upBuyCost": 2052.164376,
+      "downBuyCost": 754.632395,
+      "upWon": true,
+      "tradeCount": 62
+    },
+    {
+      "slug": "eth-updown-5m-1777417200",
+      "type": "5m",
+      "pnl": 300.7763130000001,
+      "invested": 247.155298,
+      "upBuyCost": 111.16379899999998,
+      "downBuyCost": 135.991499,
+      "upWon": true,
+      "tradeCount": 25
+    },
+    {
+      "slug": "btc-updown-15m-1777425300",
+      "type": "15m",
+      "pnl": 295.49830199999997,
+      "invested": 418.62169800000004,
+      "upBuyCost": 96.412498,
+      "downBuyCost": 322.2092,
+      "upWon": false,
+      "tradeCount": 10
+    },
+    {
+      "slug": "btc-updown-15m-1777423500",
+      "type": "15m",
+      "pnl": 238.42850100000015,
+      "invested": 872.792899,
+      "upBuyCost": 604.8555,
+      "downBuyCost": 267.93739899999997,
+      "upWon": true,
+      "tradeCount": 26
+    },
+    {
+      "slug": "eth-updown-5m-1777418700",
+      "type": "5m",
+      "pnl": 182.19908299999994,
+      "invested": 251.80209800000003,
+      "upBuyCost": 12.350000000000001,
+      "downBuyCost": 239.45209800000003,
+      "upWon": false,
+      "tradeCount": 13
+    },
+    {
+      "slug": "eth-updown-5m-1777418100",
+      "type": "5m",
+      "pnl": 175.083664,
+      "invested": 242.43809900000002,
+      "upBuyCost": 67.7898,
+      "downBuyCost": 174.648299,
+      "upWon": false,
+      "tradeCount": 12
+    },
+    {
+      "slug": "btc-updown-5m-1777419000",
+      "type": "5m",
+      "pnl": 158.50715800000057,
+      "invested": 3817.0422559999997,
+      "upBuyCost": 1774.8261739999998,
+      "downBuyCost": 2042.216082,
+      "upWon": false,
+      "tradeCount": 82
+    },
+    {
+      "slug": "btc-updown-15m-1777418100",
+      "type": "15m",
+      "pnl": 149.24559999999988,
+      "invested": 559.6144,
+      "upBuyCost": 17.5538,
+      "downBuyCost": 542.0606,
+      "upWon": false,
+      "tradeCount": 18
+    },
+    {
+      "slug": "btc-updown-5m-1777419600",
+      "type": "5m",
+      "pnl": 148.4970659999998,
+      "invested": 2106.8321789999995,
+      "upBuyCost": 1546.5707849999997,
+      "downBuyCost": 560.261394,
+      "upWon": true,
+      "tradeCount": 52
+    },
+    {
+      "slug": "eth-updown-15m-1777418100",
+      "type": "15m",
+      "pnl": 148.2122659999999,
+      "invested": 363.774399,
+      "upBuyCost": 20.7975,
+      "downBuyCost": 342.976899,
+      "upWon": false,
+      "tradeCount": 22
+    },
+    {
+      "slug": "eth-updown-5m-1777420200",
+      "type": "5m",
+      "pnl": 122.32553899999999,
+      "invested": 974.519684,
+      "upBuyCost": 522.4302920000001,
+      "downBuyCost": 452.08939199999986,
+      "upWon": true,
+      "tradeCount": 52
+    },
+    {
+      "slug": "btc-updown-5m-1777417500",
+      "type": "5m",
+      "pnl": 92.30054900000016,
+      "invested": 1963.2036779999999,
+      "upBuyCost": 1504.7126809999997,
+      "downBuyCost": 458.490997,
+      "upWon": true,
+      "tradeCount": 45
+    },
+    {
+      "slug": "btc-updown-5m-1777419900",
+      "type": "5m",
+      "pnl": 90.96970799999997,
+      "invested": 821.3450960000001,
+      "upBuyCost": 702.6113990000001,
+      "downBuyCost": 118.733697,
+      "upWon": true,
+      "tradeCount": 34
+    },
+    {
+      "slug": "btc-updown-5m-1777417800",
+      "type": "5m",
+      "pnl": 84.91317500000014,
+      "invested": 2820.8413769999997,
+      "upBuyCost": 2228.0181869999997,
+      "downBuyCost": 592.8231900000001,
+      "upWon": true,
+      "tradeCount": 37
+    },
+    {
+      "slug": "eth-updown-5m-1777420800",
+      "type": "5m",
+      "pnl": 74.93173999999998,
+      "invested": 276.39099,
+      "upBuyCost": 186.18039199999998,
+      "downBuyCost": 90.21059799999999,
+      "upWon": true,
+      "tradeCount": 28
+    },
+    {
+      "slug": "eth-updown-15m-1777416300",
+      "type": "15m",
+      "pnl": 72.58672100000001,
+      "invested": 317.124199,
+      "upBuyCost": 20.3245,
+      "downBuyCost": 296.799699,
+      "upWon": false,
+      "tradeCount": 11
+    },
+    {
+      "slug": "eth-updown-15m-1777417200",
+      "type": "15m",
+      "pnl": 70.81930000000003,
+      "invested": 150.3807,
+      "upBuyCost": 98.306,
+      "downBuyCost": 52.0747,
+      "upWon": true,
+      "tradeCount": 16
+    },
+    {
+      "slug": "eth-updown-5m-1777419300",
+      "type": "5m",
+      "pnl": 60.110575999999895,
+      "invested": 677.416695,
+      "upBuyCost": 502.14889900000003,
+      "downBuyCost": 175.267796,
+      "upWon": true,
+      "tradeCount": 34
+    },
+    {
+      "slug": "btc-updown-15m-1777419900",
+      "type": "15m",
+      "pnl": 49.59849199999985,
+      "invested": 1213.2458960000001,
+      "upBuyCost": 988.4483960000001,
+      "downBuyCost": 224.7975,
+      "upWon": true,
+      "tradeCount": 34
+    },
+    {
+      "slug": "btc-updown-15m-1777416300",
+      "type": "15m",
+      "pnl": 39.460500000000025,
+      "invested": 337.0095,
+      "upBuyCost": 0,
+      "downBuyCost": 337.0095,
+      "upWon": false,
+      "tradeCount": 5
+    },
+    {
+      "slug": "eth-updown-5m-1777416600",
+      "type": "5m",
+      "pnl": 36.92244299999996,
+      "invested": 224.920195,
+      "upBuyCost": 0,
+      "downBuyCost": 224.920195,
+      "upWon": false,
+      "tradeCount": 9
+    },
+    {
+      "slug": "eth-updown-15m-1777425300",
+      "type": "15m",
+      "pnl": 32.700717000000026,
+      "invested": 368.858693,
+      "upBuyCost": 81.948297,
+      "downBuyCost": 286.910396,
+      "upWon": false,
+      "tradeCount": 22
+    },
+    {
+      "slug": "eth-updown-15m-1777426200",
+      "type": "15m",
+      "pnl": 29.30142199999998,
+      "invested": 118.97559899999999,
+      "upBuyCost": 102.70599899999999,
+      "downBuyCost": 16.269600000000004,
+      "upWon": true,
+      "tradeCount": 12
+    },
+    {
+      "slug": "btc-updown-5m-1777417200",
+      "type": "5m",
+      "pnl": 29.17477999999997,
+      "invested": 485.89389100000005,
+      "upBuyCost": 96.92469700000001,
+      "downBuyCost": 388.969194,
+      "upWon": false,
+      "tradeCount": 20
+    },
+    {
+      "slug": "eth-updown-5m-1777418400",
+      "type": "5m",
+      "pnl": 27.25039099999998,
+      "invested": 398.196091,
+      "upBuyCost": 212.45309400000002,
+      "downBuyCost": 185.742997,
+      "upWon": true,
+      "tradeCount": 24
+    },
+    {
+      "slug": "eth-updown-5m-1777417800",
+      "type": "5m",
+      "pnl": 26.175668000000087,
+      "invested": 737.168985,
+      "upBuyCost": 560.461193,
+      "downBuyCost": 176.70779200000004,
+      "upWon": true,
+      "tradeCount": 33
+    },
+    {
+      "slug": "eth-updown-5m-1777416900",
+      "type": "5m",
+      "pnl": 17.33949000000007,
+      "invested": 758.263892,
+      "upBuyCost": 552.583693,
+      "downBuyCost": 205.68019900000002,
+      "upWon": true,
+      "tradeCount": 22
+    },
+    {
+      "slug": "btc-updown-5m-1777416600",
+      "type": "5m",
+      "pnl": 1.2537619999999974,
+      "invested": 33.79319900000001,
+      "upBuyCost": 6.143200000000001,
+      "downBuyCost": 27.649999000000005,
+      "upWon": false,
+      "tradeCount": 2
+    },
+    {
+      "slug": "bitcoin-above-76600-on-april-28-2026-9pm-et",
+      "type": "hourly",
+      "pnl": -2.112,
+      "invested": 2.112,
+      "upBuyCost": 2.112,
+      "downBuyCost": 0,
+      "upWon": false,
+      "tradeCount": 1
+    },
+    {
+      "slug": "eth-updown-15m-1777419000",
+      "type": "15m",
+      "pnl": -3.1094939999999838,
+      "invested": 471.20949400000006,
+      "upBuyCost": 264.5534,
+      "downBuyCost": 206.65609400000002,
+      "upWon": true,
+      "tradeCount": 34
+    },
+    {
+      "slug": "eth-updown-5m-1777419900",
+      "type": "5m",
+      "pnl": -8.142553,
+      "invested": 25.233197,
+      "upBuyCost": 15.809998,
+      "downBuyCost": 9.423199,
+      "upWon": true,
+      "tradeCount": 4
+    },
+    {
+      "slug": "eth-updown-5m-1777419600",
+      "type": "5m",
+      "pnl": -13.805950999999993,
+      "invested": 326.28899,
+      "upBuyCost": 209.22939300000002,
+      "downBuyCost": 117.059597,
+      "upWon": true,
+      "tradeCount": 26
+    },
+    {
+      "slug": "eth-updown-15m-1777424400",
+      "type": "15m",
+      "pnl": -15.292800000000007,
+      "invested": 74.9928,
+      "upBuyCost": 27.233800000000002,
+      "downBuyCost": 47.759,
+      "upWon": false,
+      "tradeCount": 8
+    },
+    {
+      "slug": "eth-updown-5m-1777417500",
+      "type": "5m",
+      "pnl": -28.63861499999996,
+      "invested": 456.863998,
+      "upBuyCost": 295.797699,
+      "downBuyCost": 161.06629899999996,
+      "upWon": true,
+      "tradeCount": 25
+    },
+    {
+      "slug": "btc-updown-15m-1777419000",
+      "type": "15m",
+      "pnl": -31.70649600000013,
+      "invested": 2061.7489840000003,
+      "upBuyCost": 1289.77319,
+      "downBuyCost": 771.9757940000002,
+      "upWon": true,
+      "tradeCount": 64
+    },
+    {
+      "slug": "eth-updown-15m-1777421700",
+      "type": "15m",
+      "pnl": -36.45740000000001,
+      "invested": 61.09740000000001,
+      "upBuyCost": 41.6494,
+      "downBuyCost": 19.448000000000004,
+      "upWon": false,
+      "tradeCount": 12
+    },
+    {
+      "slug": "eth-updown-15m-1777419900",
+      "type": "15m",
+      "pnl": -40.64719899999999,
+      "invested": 118.31719900000002,
+      "upBuyCost": 62.3949,
+      "downBuyCost": 55.92229900000001,
+      "upWon": true,
+      "tradeCount": 15
+    },
+    {
+      "slug": "eth-updown-5m-1777420500",
+      "type": "5m",
+      "pnl": -48.69397099999995,
+      "invested": 551.727496,
+      "upBuyCost": 317.095796,
+      "downBuyCost": 234.6317,
+      "upWon": true,
+      "tradeCount": 32
+    },
+    {
+      "slug": "btc-updown-5m-1777420500",
+      "type": "5m",
+      "pnl": -68.81921800000009,
+      "invested": 2605.709974,
+      "upBuyCost": 710.601191,
+      "downBuyCost": 1895.108783,
+      "upWon": false,
+      "tradeCount": 56
+    },
+    {
+      "slug": "eth-updown-5m-1777419000",
+      "type": "5m",
+      "pnl": -74.06665600000001,
+      "invested": 259.441099,
+      "upBuyCost": 153.4685,
+      "downBuyCost": 105.972599,
+      "upWon": false,
+      "tradeCount": 16
+    },
+    {
+      "slug": "eth-updown-15m-1777423500",
+      "type": "15m",
+      "pnl": -75.334597,
+      "invested": 219.854597,
+      "upBuyCost": 90.03460000000001,
+      "downBuyCost": 129.819997,
+      "upWon": true,
+      "tradeCount": 27
+    },
+    {
+      "slug": "eth-updown-15m-1777420800",
+      "type": "15m",
+      "pnl": -80.00589700000003,
+      "invested": 405.025897,
+      "upBuyCost": 174.215897,
+      "downBuyCost": 230.81,
+      "upWon": false,
+      "tradeCount": 26
+    },
+    {
+      "slug": "eth-updown-5m-1777421100",
+      "type": "5m",
+      "pnl": -91.65479999999991,
+      "invested": 849.977385,
+      "upBuyCost": 377.02989199999996,
+      "downBuyCost": 472.94749300000007,
+      "upWon": false,
+      "tradeCount": 44
+    },
+    {
+      "slug": "btc-updown-15m-1777426200",
+      "type": "15m",
+      "pnl": -126.24759999999999,
+      "invested": 126.93759999999999,
+      "upBuyCost": 0.6486,
+      "downBuyCost": 126.28899999999999,
+      "upWon": true,
+      "tradeCount": 11
+    },
+    {
+      "slug": "ethereum-up-or-down-april-28-2026-8pm-et",
+      "type": "hourly",
+      "pnl": -148.0159950000001,
+      "invested": 1799.6659949999998,
+      "upBuyCost": 974.2004999999999,
+      "downBuyCost": 825.465495,
+      "upWon": true,
+      "tradeCount": 69
+    },
+    {
+      "slug": "btc-updown-5m-1777421100",
+      "type": "5m",
+      "pnl": -198.94855699999994,
+      "invested": 1816.8977929999999,
+      "upBuyCost": 1147.007596,
+      "downBuyCost": 669.890197,
+      "upWon": true,
+      "tradeCount": 33
+    },
+    {
+      "slug": "btc-updown-5m-1777416900",
+      "type": "5m",
+      "pnl": -200.24814700000002,
+      "invested": 2234.486183,
+      "upBuyCost": 1604.959486,
+      "downBuyCost": 629.526697,
+      "upWon": true,
+      "tradeCount": 31
+    },
+    {
+      "slug": "bitcoin-up-or-down-april-28-2026-8pm-et",
+      "type": "hourly",
+      "pnl": -206.85007500000006,
+      "invested": 3148.228897,
+      "upBuyCost": 2117.926399,
+      "downBuyCost": 1030.3024980000002,
+      "upWon": true,
+      "tradeCount": 71
+    },
+    {
+      "slug": "bitcoin-up-or-down-april-28-2026-7pm-et",
+      "type": "hourly",
+      "pnl": -232.78470700000025,
+      "invested": 2769.056895,
+      "upBuyCost": 1716.432497,
+      "downBuyCost": 1052.6243980000002,
+      "upWon": true,
+      "tradeCount": 64
+    },
+    {
+      "slug": "eth-updown-15m-1777422600",
+      "type": "15m",
+      "pnl": -244.72669899999997,
+      "invested": 251.46669899999998,
+      "upBuyCost": 6.124999999999999,
+      "downBuyCost": 245.34169899999998,
+      "upWon": true,
+      "tradeCount": 12
+    },
+    {
+      "slug": "btc-updown-5m-1777418100",
+      "type": "5m",
+      "pnl": -256.1025809999994,
+      "invested": 3571.9250859999993,
+      "upBuyCost": 1708.3953959999997,
+      "downBuyCost": 1863.5296899999998,
+      "upWon": false,
+      "tradeCount": 71
+    },
+    {
+      "slug": "btc-updown-15m-1777417200",
+      "type": "15m",
+      "pnl": -271.74777399999994,
+      "invested": 1117.425493,
+      "upBuyCost": 564.298198,
+      "downBuyCost": 553.127295,
+      "upWon": true,
+      "tradeCount": 33
+    },
+    {
+      "slug": "ethereum-up-or-down-april-28-2026-7pm-et",
+      "type": "hourly",
+      "pnl": -287.4555559999999,
+      "invested": 2234.404297,
+      "upBuyCost": 1387.044297,
+      "downBuyCost": 847.3599999999999,
+      "upWon": true,
+      "tradeCount": 59
+    },
+    {
+      "slug": "btc-updown-15m-1777424400",
+      "type": "15m",
+      "pnl": -353.321,
+      "invested": 1065.3609999999999,
+      "upBuyCost": 538.9584,
+      "downBuyCost": 526.4026,
+      "upWon": false,
+      "tradeCount": 25
+    },
+    {
+      "slug": "btc-updown-5m-1777419300",
+      "type": "5m",
+      "pnl": -379.43877699999916,
+      "invested": 2854.426589999999,
+      "upBuyCost": 1536.2020899999995,
+      "downBuyCost": 1318.2244999999998,
+      "upWon": true,
+      "tradeCount": 30
+    },
+    {
+      "slug": "btc-updown-15m-1777421700",
+      "type": "15m",
+      "pnl": -444.1486030000001,
+      "invested": 1313.5258850000002,
+      "upBuyCost": 634.3424950000001,
+      "downBuyCost": 679.1833900000001,
+      "upWon": false,
+      "tradeCount": 47
+    }
+  ]
+}

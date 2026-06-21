@@ -19,7 +19,7 @@ import {
     MarketParams
 } from '../services/paramLoader';
 
-export type MarketKey = 'BTC_15m' | 'ETH_15m' | 'BTC_1h' | 'ETH_1h';
+export type MarketKey = 'BTC_5m' | 'ETH_5m' | 'BTC_15m' | 'ETH_15m' | 'BTC_1h' | 'ETH_1h';
 
 export interface TradingConfig {
     [market: string]: MarketParams;
@@ -88,7 +88,7 @@ export function generateAssertionReport(config: TradingConfig): {
 } {
     const missingFields: Record<string, string[]> = {};
     const validationErrors: Record<string, string[]> = {};
-    const markets: MarketKey[] = ['BTC_15m', 'ETH_15m', 'BTC_1h', 'ETH_1h'];
+    const markets: MarketKey[] = ['BTC_5m', 'ETH_5m', 'BTC_15m', 'ETH_15m', 'BTC_1h', 'ETH_1h'];
 
     for (const market of markets) {
         const params = config[market];

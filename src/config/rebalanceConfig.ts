@@ -72,7 +72,14 @@ export interface RebalanceConfig {
   bell_curve_peak_multiplier: number;    // 1.50 at price 0.50
   bell_curve_extreme_multiplier: number; // 0.30 at price 0.10/0.90
 
-  // Market close behavior (15-minute markets)
+  // Time-weighted sizing (match copy-bot quartile shape)
+  time_weighting_enabled: boolean;
+  q1_multiplier: number;   // 0–25% of market duration
+  q2_multiplier: number;   // 25–50% of market duration
+  q3_multiplier: number;   // 50–75% of market duration (peak)
+  q4_multiplier: number;   // 75–100% of market duration (downshift)
+
+  // Market close behavior (5-minute and 15-minute markets)
   close_reduce_activity_minutes: number;
   close_activity_multiplier: number;
   close_reduce_size_minutes: number;
@@ -155,6 +162,12 @@ const DEFAULT_CONFIG: RebalanceConfig = {
   bell_curve_enabled: true,
   bell_curve_peak_multiplier: 1.50,
   bell_curve_extreme_multiplier: 0.30,
+  // Time-weighted sizing (match copy-bot quartile shape)
+  time_weighting_enabled: true,
+  q1_multiplier: 1.00,   // 0–25%
+  q2_multiplier: 0.95,   // 25–50%
+  q3_multiplier: 1.45,   // 50–75% (peak)
+  q4_multiplier: 0.50,   // 75–100% (downshift)
   // Market close behavior (15-minute markets)
   close_reduce_activity_minutes: 4,
   close_activity_multiplier: 0.25,

@@ -12,6 +12,7 @@ import { MarketDataService } from "./marketData";
 import { getRunId } from "../utils/runId";
 import { PnLCalculator, PortfolioPnL } from "../utils/pnlCalculator";
 import { CSVExporter } from "../utils/csvExporter";
+import { simulateMarketBuy, simulateMarketSell } from "../utils/orderBookSimulator";
 import telegramNotifier from "./telegramNotifier";
 import * as fs from "fs";
 import * as path from "path";
@@ -755,16 +756,95 @@ export class PaperTrader {
     }
 
     try {
-      // Get current market price for realistic execution
-      const currentPrice = await this.marketData.getPrice(signal.tokenId, signal.side);
-      const executePrice = currentPrice || signal.price;
+      // Determine fill price by walking the live Polymarket order book.
+      // This replaces the previous "top of book + random 0.1-0.5% slippage"
+      // approximation, so paper PnL reflects realistic depth-aware fills.
+      // Falls back to the legacy approximation if the book is unavailable.
+      let finalPrice: number = 0;
+      let executedSize: number = signal.size;
+      let cost: number = 0;
+      let bookFillUsed = false;
 
-      // Simulate slippage (0.1% - 0.5%)
-      const slippage = 1 + (Math.random() * 0.004 + 0.001) * (signal.side === "BUY" ? 1 : -1);
-      const finalPrice = executePrice * slippage;
+      const useBookSim =
+        (process.env.USE_ORDER_BOOK_FILL ?? "true").toLowerCase() !== "false";
 
-      const cost = finalPrice * signal.size;
-      // Fees removed - no fee simulation
+      if (useBookSim) {
+        try {
+          const book = await this.marketData.getOrderBook(signal.tokenId);
+          const hasLiquidity =
+            book &&
+            ((signal.side === "BUY" && book.asks && book.asks.length > 0) ||
+              (signal.side === "SELL" && book.bids && book.bids.length > 0));
+
+          if (hasLiquidity) {
+            const fill =
+              signal.side === "BUY"
+                ? simulateMarketBuy(book!, signal.size, 0.99)
+                : simulateMarketSell(book!, signal.size, 0.01);
+
+            if (fill.sharesFilled > 0) {
+              finalPrice = fill.avgPrice;
+              executedSize = fill.sharesFilled;
+              cost = fill.totalCost;
+              bookFillUsed = true;
+
+              const slippageBps =
+                fill.topOfBookPrice > 0
+                  ? ((fill.avgPrice - fill.topOfBookPrice) / fill.topOfBookPrice) *
+                    10000 *
+                    (signal.side === "BUY" ? 1 : -1)
+                  : 0;
+
+              logger.paper(
+                `[BOOK-FILL] ${signal.side} ${executedSize.toFixed(2)} sh: ` +
+                  `top $${fill.topOfBookPrice.toFixed(4)} → avg $${fill.avgPrice.toFixed(4)} ` +
+                  `(slip ${slippageBps >= 0 ? "+" : ""}${slippageBps.toFixed(0)}bps, ` +
+                  `${fill.fills.length} lvl, depth ${fill.bookDepthShares.toFixed(0)}sh)`
+              );
+
+              if (!fill.filled) {
+                logger.paper(
+                  `[BOOK-FILL] Partial fill: requested ${signal.size.toFixed(2)} ` +
+                    `but only ${fill.sharesFilled.toFixed(2)} available at acceptable prices ` +
+                    `(unfilled ${fill.unfilledSize.toFixed(2)})`
+                );
+              }
+            } else {
+              logger.warn(
+                `[BOOK-FILL] No fillable liquidity for ${signal.side} ${signal.size} on ${signal.tokenId}`
+              );
+            }
+          } else {
+            logger.warn(
+              `[BOOK-FILL] Order book empty/unavailable for ${signal.tokenId}; falling back to top-of-book + random slippage`
+            );
+          }
+        } catch (bookError) {
+          logger.warn(
+            `[BOOK-FILL] Order book fetch failed; falling back to top-of-book + random slippage: ${
+              bookError instanceof Error ? bookError.message : bookError
+            }`
+          );
+        }
+      }
+
+      if (!bookFillUsed) {
+        // Legacy fallback: top-of-book price + random 0.1-0.5% slippage.
+        const currentPrice = await this.marketData.getPrice(signal.tokenId, signal.side);
+        const executePrice = currentPrice || signal.price;
+        const slippage =
+          1 + (Math.random() * 0.004 + 0.001) * (signal.side === "BUY" ? 1 : -1);
+        finalPrice = executePrice * slippage;
+        executedSize = signal.size;
+        cost = finalPrice * signal.size;
+      }
+
+      if (executedSize <= 0 || finalPrice <= 0) {
+        execution.status = "failed";
+        execution.error = `No fillable liquidity at acceptable prices for ${signal.side} ${signal.size} on ${signal.tokenId}`;
+        logger.paper(`Order failed: ${execution.error}`);
+        return execution;
+      }
 
       if (signal.side === "BUY") {
         // Check if we have enough balance
@@ -781,10 +861,10 @@ export class PaperTrader {
         // Update or create position
         const existingPosition = this.account.positions.get(signal.tokenId);
         if (existingPosition) {
-          const totalSize = existingPosition.size + signal.size;
+          const totalSize = existingPosition.size + executedSize;
           const avgPrice =
             (existingPosition.avgPrice * existingPosition.size +
-              finalPrice * signal.size) /
+              finalPrice * executedSize) /
             totalSize;
           existingPosition.size = totalSize;
           existingPosition.avgPrice = avgPrice;
@@ -795,7 +875,7 @@ export class PaperTrader {
             tokenId: signal.tokenId,
             title: signal.metadata?.title as string || "Unknown",
             outcome: signal.metadata?.outcome as string || "Unknown",
-            size: signal.size,
+            size: executedSize,
             avgPrice: finalPrice,
             timestamp: new Date(),
           };
@@ -804,9 +884,9 @@ export class PaperTrader {
       } else {
         // SELL
         const existingPosition = this.account.positions.get(signal.tokenId);
-        if (!existingPosition || existingPosition.size < signal.size) {
+        if (!existingPosition || existingPosition.size < executedSize) {
           execution.status = "failed";
-          execution.error = `Insufficient position. Trying to sell ${signal.size}, have ${existingPosition?.size || 0}`;
+          execution.error = `Insufficient position. Trying to sell ${executedSize}, have ${existingPosition?.size || 0}`;
           logger.paper(`Order failed: ${execution.error}`);
           return execution;
         }
@@ -815,19 +895,19 @@ export class PaperTrader {
         this.account.balance += cost;
 
         // Calculate realized PnL (fees excluded to match Polymarket API)
-        const realizedPnl = (finalPrice - existingPosition.avgPrice) * signal.size;
+        const realizedPnl = (finalPrice - existingPosition.avgPrice) * executedSize;
         existingPosition.realizedPnl = (existingPosition.realizedPnl || 0) + realizedPnl;
 
         // Update position
-        existingPosition.size -= signal.size;
+        existingPosition.size -= executedSize;
         if (existingPosition.size <= 0) {
           this.account.positions.delete(signal.tokenId);
         }
       }
 
-      execution.status = "filled";
+      execution.status = executedSize < signal.size ? "partial" : "filled";
       execution.executedPrice = finalPrice;
-      execution.executedSize = signal.size;
+      execution.executedSize = executedSize;
       execution.fees = 0; // Fees removed
 
       // Capture position state BEFORE updating (for CSV logging)
@@ -841,14 +921,14 @@ export class PaperTrader {
         avgPrice: positionBefore.avgPrice,
       } : { size: 0, avgPrice: 0 };
 
-      // Save to history
+      // Save to history (use actual executed size, which may be < requested for partial fills)
       const history: TradeHistory = {
         marketId: signal.marketId,
         conditionId: signal.conditionId,
         tokenId: signal.tokenId,
         side: signal.side,
         price: finalPrice,
-        size: signal.size,
+        size: executedSize,
         usdcSize: cost,
         fees: 0, // Fees removed
         strategyName: signal.strategyName,
@@ -868,9 +948,10 @@ export class PaperTrader {
       }
 
       logger.paper(
-        `${signal.side} ${signal.size} @ $${finalPrice.toFixed(4)} | ` +
+        `${signal.side} ${executedSize.toFixed(2)} @ $${finalPrice.toFixed(4)} | ` +
         `Balance: $${this.account.balance.toFixed(2)} | ` +
-        `Strategy: ${signal.strategyName}`
+        `Strategy: ${signal.strategyName}` +
+        (executedSize < signal.size ? ` | PARTIAL (req ${signal.size.toFixed(2)})` : "")
       );
 
       // Write to CSV file (position is now updated, but we have positionBefore stored)
@@ -1450,13 +1531,13 @@ export class PaperTrader {
 
         for (const market of marketsInWindow) {
           const marketType = market.is15Min ? "15-Min" : market.is1Hour ? "1-Hour" : "Other";
-          const pnlSign = market.pnl >= 0 ? "+" : "";
+          const pnlSign = market.pnl >= 0 ? "+" : "-";
 
           // Market header
           report += EOL + "-".repeat(100) + EOL;
           report += `  ${marketType} Market: ${market.name}` + EOL;
           report += "-".repeat(100) + EOL + EOL;
-          
+
           // Outcome and PnL
           report += "  OUTCOME: " + market.outcome + EOL;
           const pnlStr = `${pnlSign}$${Math.abs(market.pnl).toFixed(2)}`;
@@ -1501,7 +1582,7 @@ export class PaperTrader {
         }
 
         // Window summary
-        const windowPnLSign = windowPnL >= 0 ? "+" : "";
+        const windowPnLSign = windowPnL >= 0 ? "+" : "-";
         const windowPnLPercent = windowInvested > 0 ? (windowPnL / windowInvested) * 100 : 0;
         report += EOL + "=".repeat(100) + EOL;
         const windowPnLStr = `${windowPnLSign}$${Math.abs(windowPnL).toFixed(2)}`;
@@ -1519,7 +1600,7 @@ export class PaperTrader {
       report += EOL + "=".repeat(100) + EOL;
       report += "                              OVERALL SUMMARY" + EOL;
       report += "=".repeat(100) + EOL + EOL;
-      const totalPnLSign = totalPnL >= 0 ? "+" : "";
+      const totalPnLSign = totalPnL >= 0 ? "+" : "-";
       const totalPnLPercent = totalInvested > 0 ? (totalPnL / totalInvested) * 100 : 0;
       const totalPnLStr = `${totalPnLSign}$${Math.abs(totalPnL).toFixed(2)}`;
       const totalPnLPercentStr = `${totalPnLSign}${Math.abs(totalPnLPercent).toFixed(2)}%`;

@@ -64,6 +64,8 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
   private lastTelegramAlertTimes: Record<string, number> = {};
   // Throttled debug logging (per key)
   private lastDebugLogTimes: Record<string, number> = {};
+  // Track duration check logs per market (to log once per market window)
+  private durationCheckLogged: Set<string> = new Set();
   // Optional paper trader for balance reset on new market windows
   private paperTrader?: any;
 
@@ -85,8 +87,10 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     edgeFallbackBlocked: 0,  // Times EDGE blocked losing-side fallback
   };
 
-  // Market types to trade on (15-minute and 1-hour markets)
+  // Market types to trade on (5-minute, 15-minute and 1-hour markets)
   private static readonly MARKET_TYPES = [
+    'btc-updown-5m',
+    'eth-updown-5m',
     'btc-updown-15m',
     'eth-updown-15m',
     'bitcoin-up-or-down',
@@ -330,7 +334,7 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
       return [];
     }
 
-    // CLOSE BEHAVIOR: Skip some trades near market close (15m markets only)
+    // CLOSE BEHAVIOR: Skip some trades near market close (5m/15m markets only)
     if (this.shouldSkipTradeNearClose(state)) {
       this.logThrottled(
         `near_close_${marketType}`,
@@ -346,9 +350,8 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
       const maxPrice = Math.max(yesPrice, noPrice);
 
       if (maxPrice >= lateEntryThreshold) {
-        // Check how much time is left - for 15m markets, allow late entry if >5 min left
         const timeLeft = this.getTimeUntilClose(state);
-        const minMinutesForLateEntry = this.is15MinuteMarket(marketType) ? 5 : 20; // 5 min for 15m, 20 min for 1h
+        const minMinutesForLateEntry = this.is5MinuteMarket(marketType) ? 2 : this.is15MinuteMarket(marketType) ? 5 : 20;
 
         if (timeLeft && timeLeft.minutesLeft < minMinutesForLateEntry) {
           this.logThrottled(
@@ -686,6 +689,66 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     if (isInFlipRecovery) {
       baseUpAmount *= config.flip_recovery_max_trade_multiplier;
       baseDownAmount *= config.flip_recovery_max_trade_multiplier;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // TIME-WEIGHTED SIZING: boost Q3, reduce Q4 (match copy bot)
+    // FLIP_RECOVERY: Excluded - emergency mode uses consistent sizing (not quartile-dependent)
+    // ─────────────────────────────────────────────────────────────
+    if (config.time_weighting_enabled && !isInFlipRecovery) {
+      const nowMs = Date.now();
+      
+      // Get market start and end times from priceStreamLogger
+      const currentMarkets = priceStreamLogger.getCurrentMarkets();
+      const wsMarket = currentMarkets.get(marketType);
+      
+      if (wsMarket) {
+        const startMs = new Date(wsMarket.start_time_iso).getTime();
+        const endMs = new Date(wsMarket.end_date_iso).getTime();
+        
+        const duration = Math.max(1, endMs - startMs);
+        
+        // STEP 1: Sanity check - log duration once per market window (should be ~900,000ms for 15m)
+        const durationCheckKey = `${marketType}_${wsMarket.condition_id}`;
+        if (!this.durationCheckLogged.has(durationCheckKey)) {
+          this.durationCheckLogged.add(durationCheckKey);
+          const durationMinutes = duration / (60 * 1000);
+          this.log(`[${this.getShortName(marketType)}] TIME-WEIGHTING: Duration check - endMs - startMs = ${duration.toLocaleString()}ms (${durationMinutes.toFixed(2)} minutes)`);
+          // For 5m expect ~300,000ms, for 15m expect ~900,000ms
+          if (this.is5MinuteMarket(marketType) || this.is15MinuteMarket(marketType)) {
+            const expectedMs = 15 * 60 * 1000;
+            const diff = Math.abs(duration - expectedMs);
+            if (diff > 60000) { // More than 1 minute off
+              this.log(`[${this.getShortName(marketType)}] ⚠️  WARNING: 15m market duration is ${durationMinutes.toFixed(2)} min (expected ~15.00 min) - check start/end times!`);
+            }
+          }
+        }
+        
+        const progress = Math.min(0.999, Math.max(0, (nowMs - startMs) / duration));
+        
+        let timeMult = config.q1_multiplier;
+        let quartile = "Q1";
+        if (progress >= 0.75) {
+          timeMult = config.q4_multiplier;
+          quartile = "Q4";
+        } else if (progress >= 0.50) {
+          timeMult = config.q3_multiplier;
+          quartile = "Q3";
+        } else if (progress >= 0.25) {
+          timeMult = config.q2_multiplier;
+          quartile = "Q2";
+        }
+        
+        // STEP 2: Debug log (throttled every 45 seconds) - show progress, quartile, timeMult
+        this.logThrottled(
+          `time_weighting_${marketType}`,
+          `[${this.getShortName(marketType)}] TIME-WEIGHTING: progress=${progress.toFixed(2)} (${(progress * 100).toFixed(0)}%) → ${quartile} → timeMult=${timeMult.toFixed(2)}`,
+          45000 // 45 seconds
+        );
+        
+        baseUpAmount *= timeMult;
+        baseDownAmount *= timeMult;
+      }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1146,18 +1209,23 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     const config = this.rebalanceConfig;
     const is1h = this.is1HourMarket(marketType);
     const is15m = this.is15MinuteMarket(marketType);
+    const is5m = this.is5MinuteMarket(marketType);
 
     let baseSize: number;
     if (is1h) {
-      // 1-Hour: conservative sizing
       baseSize = config.sizing_1h_base + (price * config.sizing_1h_multiplier);
       baseSize = Math.max(config.sizing_1h_min_trade, Math.min(baseSize, config.sizing_1h_max_trade));
     } else if (is15m) {
-      // 15-Minute: moderate sizing
       baseSize = config.sizing_15m_base + (price * config.sizing_15m_multiplier);
       baseSize = Math.max(config.sizing_15m_min_trade, Math.min(baseSize, config.sizing_15m_max_trade));
+    } else if (is5m) {
+      const base5m = config.sizing_5m_base ?? config.sizing_15m_base;
+      const mult5m = config.sizing_5m_multiplier ?? config.sizing_15m_multiplier;
+      const min5m = config.sizing_5m_min_trade ?? config.sizing_15m_min_trade;
+      const max5m = config.sizing_5m_max_trade ?? config.sizing_15m_max_trade;
+      baseSize = base5m + (price * mult5m);
+      baseSize = Math.max(min5m, Math.min(baseSize, max5m));
     } else {
-      // Fallback to 15m sizing
       baseSize = config.sizing_15m_base + (price * config.sizing_15m_multiplier);
       baseSize = Math.max(config.sizing_15m_min_trade, Math.min(baseSize, config.sizing_15m_max_trade));
     }
@@ -1209,6 +1277,9 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     if (this.is1HourMarket(marketType)) {
       return config.sizing_1h_cooldown_sec;
     }
+    if (this.is5MinuteMarket(marketType)) {
+      return config.sizing_5m_cooldown_sec ?? config.sizing_15m_cooldown_sec;
+    }
     return config.sizing_15m_cooldown_sec;
   }
 
@@ -1217,6 +1288,13 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
    */
   private is1HourMarket(marketType: string): boolean {
     return marketType.includes('up-or-down') || marketType.includes('1h');
+  }
+
+  /**
+   * Check if market type is 5-minute
+   */
+  private is5MinuteMarket(marketType: string): boolean {
+    return marketType.includes('5m') && !marketType.includes('15m');
   }
 
   /**
@@ -1231,6 +1309,8 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
    */
   private getShortName(marketType: string): string {
     switch (marketType) {
+      case 'btc-updown-5m': return 'BTC-5m';
+      case 'eth-updown-5m': return 'ETH-5m';
       case 'btc-updown-15m': return 'BTC-15m';
       case 'eth-updown-15m': return 'ETH-15m';
       case 'bitcoin-up-or-down': return 'BTC-1h';
@@ -1268,8 +1348,8 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
    * Returns true if trade should be skipped
    */
   private shouldSkipTradeNearClose(state: MarketState): boolean {
-    // Only apply to 15-minute markets
-    if (!this.is15MinuteMarket(state.marketType)) {
+    // Only apply to 5-minute and 15-minute markets
+    if (!this.is5MinuteMarket(state.marketType) && !this.is15MinuteMarket(state.marketType)) {
       return false;
     }
 
@@ -1310,8 +1390,8 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
    * Returns multiplier (e.g., 0.60 for 60% of normal size)
    */
   private getCloseSizeMultiplier(state: MarketState): number {
-    // Only apply to 15-minute markets
-    if (!this.is15MinuteMarket(state.marketType)) {
+    // Only apply to 5-minute and 15-minute markets
+    if (!this.is5MinuteMarket(state.marketType) && !this.is15MinuteMarket(state.marketType)) {
       return 1.0;
     }
 

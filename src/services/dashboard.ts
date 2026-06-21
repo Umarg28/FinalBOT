@@ -576,7 +576,9 @@ export class Dashboard {
     // Market name (extract short name from question - like "BTC-UpDown-15" or "ETH-UpDown-1h-1")
     let marketName = market.question;
     if (market.question.includes("Bitcoin") || market.question.includes("BTC")) {
-      if (market.question.includes("15") || market.question.includes("1:45")) {
+      if (market.question.includes("5m") || market.question.includes("updown-5m")) {
+        marketName = "BTC-UpDown-5";
+      } else if (market.question.includes("15") || market.question.includes("1:45")) {
         marketName = "BTC-UpDown-15";
       } else if (market.question.includes("1PM") || market.question.includes("1-2PM")) {
         marketName = "BTC-UpDown-1h-1";
@@ -584,7 +586,9 @@ export class Dashboard {
         marketName = "BTC-UpDown";
       }
     } else if (market.question.includes("Ethereum") || market.question.includes("ETH")) {
-      if (market.question.includes("15") || market.question.includes("1:45")) {
+      if (market.question.includes("5m") || market.question.includes("updown-5m")) {
+        marketName = "ETH-UpDown-5";
+      } else if (market.question.includes("15") || market.question.includes("1:45")) {
         marketName = "ETH-UpDown-15";
       } else if (market.question.includes("1PM") || market.question.includes("1-2PM")) {
         marketName = "ETH-UpDown-1h-1";
