@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b0e14" />
+  <title>BetaBot Analytics</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">📊 BetaBot <span>Analytics</span> <em id="since-note" class="since-note"></em></div>
+    <div class="topbar-actions">
+      <a id="tunnel-link" class="tunnel" href="#" target="_blank" rel="noopener">tunnel: —</a>
+      <button id="btn-rotate" class="btn" title="Get a new Cloudflare link (sent to Telegram)">♻️ New tunnel</button>
+      <button id="btn-refresh" class="btn" title="Reload data">🔄</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="daily">Daily PnL</button>
+    <button class="tab" data-tab="markets">Markets</button>
+    <button class="tab" data-tab="analysis">Analysis</button>
+  </nav>
+
+  <main id="content">
+    <!-- Overview -->
+    <section class="view active" id="view-overview">
+      <div id="readiness" class="readiness"></div>
+      <div id="overview-cards" class="cards"></div>
+      <h3>Per-market-type performance</h3>
+      <p class="hint">What's profitable vs what's bleeding. Click a row to filter the Markets tab.</p>
+      <div id="market-type-table" class="table-wrap"></div>
+    </section>
+
+    <!-- Daily -->
+    <section class="view" id="view-daily">
+      <h3>Daily PnL</h3>
+      <p class="hint">Click a day to see the per-market-type breakdown and every market settled that day.</p>
+      <div id="daily-table" class="table-wrap"></div>
+      <div id="daily-detail"></div>
+    </section>
+
+    <!-- Markets -->
+    <section class="view" id="view-markets">
+      <div class="markets-head">
+        <h3>Settled markets <span id="markets-filter-label"></span></h3>
+        <select id="markets-filter"></select>
+      </div>
+      <div id="markets-table" class="table-wrap"></div>
+      <div id="market-detail" class="modal hidden">
+        <div class="modal-card">
+          <button class="modal-close" id="market-detail-close">✕</button>
+          <div id="market-detail-body"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Analysis -->
+    <section class="view" id="view-analysis">
+      <h3>Strategy analysis</h3>
+      <p class="hint">Deterministic heuristics run instantly. Use AI for a richer narrative (needs ANTHROPIC_API_KEY).</p>
+      <div class="analysis-actions">
+        <button id="btn-ai" class="btn primary">🤖 Analyze with AI</button>
+      </div>
+      <div id="ai-output" class="ai-output hidden"></div>
+      <h4>Findings</h4>
+      <div id="findings"></div>
+      <h4>Suggested parameter adjustments</h4>
+      <ul id="suggestions" class="suggestions"></ul>
+    </section>
+  </main>
+
+  <footer class="footer">Read-only over <code>logs/paper/</code> · does not touch core trading</footer>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

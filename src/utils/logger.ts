@@ -11,6 +11,11 @@ export enum LogLevel {
 }
 
 let currentLogLevel = LogLevel.INFO;
+// Separate threshold for what is printed to the console. The file always
+// receives everything at/above currentLogLevel; the console can be quieted
+// independently (e.g. while a full-screen dashboard is rendering) without
+// losing any file logging. Defaults to currentLogLevel.
+let consoleLogLevel = LogLevel.INFO;
 let logFileStream: fs.WriteStream | null = null;
 let logFilePath: string | null = null;
 
@@ -82,6 +87,19 @@ export function setLogLevel(level: LogLevel): void {
   currentLogLevel = level;
 }
 
+/**
+ * Set the minimum level that is printed to the console. File logging is
+ * unaffected. Use this to hide noisy INFO output while a dashboard is on screen.
+ */
+export function setConsoleLogLevel(level: LogLevel): void {
+  consoleLogLevel = level;
+}
+
+/** Whether a message at `level` should be printed to the console. */
+function shouldPrint(level: LogLevel): boolean {
+  return level >= consoleLogLevel;
+}
+
 function timestamp(): string {
   return new Date().toISOString();
 }
@@ -89,7 +107,7 @@ function timestamp(): string {
 export function debug(...args: unknown[]): void {
   if (currentLogLevel <= LogLevel.DEBUG) {
     const message = `[${timestamp()}] [DEBUG] ${formatArgs(args)}\n`;
-    console.log(chalk.gray(`[${timestamp()}] [DEBUG]`), ...args);
+    if (shouldPrint(LogLevel.DEBUG)) console.log(chalk.gray(`[${timestamp()}] [DEBUG]`), ...args);
     writeToFile(message);
   }
 }
@@ -97,7 +115,7 @@ export function debug(...args: unknown[]): void {
 export function info(...args: unknown[]): void {
   if (currentLogLevel <= LogLevel.INFO) {
     const message = `[${timestamp()}] [INFO] ${formatArgs(args)}\n`;
-    console.log(chalk.blue(`[${timestamp()}] [INFO]`), ...args);
+    if (shouldPrint(LogLevel.INFO)) console.log(chalk.blue(`[${timestamp()}] [INFO]`), ...args);
     writeToFile(message);
   }
 }
@@ -105,7 +123,7 @@ export function info(...args: unknown[]): void {
 export function success(...args: unknown[]): void {
   if (currentLogLevel <= LogLevel.INFO) {
     const message = `[${timestamp()}] [SUCCESS] ${formatArgs(args)}\n`;
-    console.log(chalk.green(`[${timestamp()}] [SUCCESS]`), ...args);
+    if (shouldPrint(LogLevel.INFO)) console.log(chalk.green(`[${timestamp()}] [SUCCESS]`), ...args);
     writeToFile(message);
   }
 }
@@ -113,7 +131,7 @@ export function success(...args: unknown[]): void {
 export function warn(...args: unknown[]): void {
   if (currentLogLevel <= LogLevel.WARN) {
     const message = `[${timestamp()}] [WARN] ${formatArgs(args)}\n`;
-    console.log(chalk.yellow(`[${timestamp()}] [WARN]`), ...args);
+    if (shouldPrint(LogLevel.WARN)) console.log(chalk.yellow(`[${timestamp()}] [WARN]`), ...args);
     writeToFile(message);
   }
 }
@@ -121,7 +139,7 @@ export function warn(...args: unknown[]): void {
 export function error(...args: unknown[]): void {
   if (currentLogLevel <= LogLevel.ERROR) {
     const message = `[${timestamp()}] [ERROR] ${formatArgs(args)}\n`;
-    console.log(chalk.red(`[${timestamp()}] [ERROR]`), ...args);
+    if (shouldPrint(LogLevel.ERROR)) console.log(chalk.red(`[${timestamp()}] [ERROR]`), ...args);
     writeToFile(message);
   }
 }
@@ -129,13 +147,13 @@ export function error(...args: unknown[]): void {
 export function trade(side: "BUY" | "SELL", ...args: unknown[]): void {
   const color = side === "BUY" ? chalk.green : chalk.red;
   const message = `[${timestamp()}] [TRADE] [${side}] ${formatArgs(args)}\n`;
-  console.log(color(`[${timestamp()}] [TRADE] [${side}]`), ...args);
+  if (shouldPrint(LogLevel.INFO)) console.log(color(`[${timestamp()}] [TRADE] [${side}]`), ...args);
   writeToFile(message);
 }
 
 export function paper(...args: unknown[]): void {
   const message = `[${timestamp()}] [PAPER] ${formatArgs(args)}\n`;
-  console.log(chalk.magenta(`[${timestamp()}] [PAPER]`), ...args);
+  if (shouldPrint(LogLevel.INFO)) console.log(chalk.magenta(`[${timestamp()}] [PAPER]`), ...args);
   writeToFile(message);
 }
 
@@ -171,6 +189,7 @@ export default {
   trade,
   paper,
   setLogLevel,
+  setConsoleLogLevel,
   getLogFilePath,
   closeLogFile,
 };

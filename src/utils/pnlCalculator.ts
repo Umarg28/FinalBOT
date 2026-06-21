@@ -178,7 +178,8 @@ export class PnLCalculator {
     const markets = new Map<string, MarketPnL>();
 
     for (const position of positions) {
-      const currentPrice = currentPrices.get(position.tokenId) || position.currentPrice || position.avgPrice;
+      // Nullish coalescing so a legitimate 0.0 settlement price is respected.
+      const currentPrice = currentPrices.get(position.tokenId) ?? position.currentPrice ?? position.avgPrice;
       const posPnL = this.calculatePositionPnL(position, currentPrice, 0); // Fees excluded from PnL calculation
 
       positionPnLs.push(posPnL);
@@ -299,7 +300,10 @@ export class PnLCalculator {
     let totalCurrentValue = 0;
 
     for (const position of marketPositions) {
-      const currentPrice = currentPrices.get(position.tokenId) || position.currentPrice || position.avgPrice;
+      // Use nullish coalescing, NOT ||, so a legitimate 0.0 settlement price
+      // (losing side resolves to $0) is not mistaken for "missing" and replaced
+      // with avgPrice — which would massively overstate the loser's value.
+      const currentPrice = currentPrices.get(position.tokenId) ?? position.currentPrice ?? position.avgPrice;
       const posPnL = this.calculatePositionPnL(position, currentPrice);
       positionPnLs.push(posPnL);
       totalCostBasis += posPnL.costBasis;

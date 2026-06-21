@@ -1,9 +1,11 @@
 import { ethers } from "ethers";
 import { ClobClient } from "@polymarket/clob-client";
+import type { ApiKeyCreds } from "@polymarket/clob-client";
 import { ENV } from "../config/env";
 import logger from "../utils/logger";
 
 let clobClient: ClobClient | null = null;
+let clobApiCreds: ApiKeyCreds | null = null;
 
 export async function createClobClient(): Promise<ClobClient> {
   if (clobClient) {
@@ -33,14 +35,24 @@ export async function createClobClient(): Promise<ClobClient> {
     console.error = () => {}; // Suppress expected errors
 
     try {
-      await clobClient.createApiKey();
-      logger.info("Created new API credentials");
-    } catch {
-      await clobClient.deriveApiKey();
+      clobApiCreds = await clobClient.deriveApiKey();
       logger.info("Using existing API credentials");
+    } catch {
+      clobApiCreds = await clobClient.createApiKey();
+      logger.info("Created new API credentials");
     }
 
     console.error = originalConsoleError;
+
+    if (clobApiCreds?.key) {
+      clobClient = new ClobClient(
+        ENV.CLOB_HTTP_URL,
+        137,
+        wallet,
+        clobApiCreds,
+        1
+      );
+    }
 
     logger.success("CLOB client initialized");
     return clobClient;
@@ -52,6 +64,10 @@ export async function createClobClient(): Promise<ClobClient> {
 
 export function getClobClient(): ClobClient | null {
   return clobClient;
+}
+
+export function getClobApiCreds(): ApiKeyCreds | null {
+  return clobApiCreds;
 }
 
 export default createClobClient;

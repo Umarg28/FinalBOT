@@ -70,6 +70,8 @@ export interface TradeExecution {
   timestamp: Date;
   transactionHash?: string;
   error?: string;
+  /** Set when the order was blocked by a pre-trade check (risk/staleness/future market). Not retryable. */
+  rejectedPreTrade?: boolean;
 }
 
 export interface TradeHistory {
@@ -94,6 +96,14 @@ export interface PaperAccount {
   tradeHistory: TradeHistory[];
   startingBalance: number;
   createdAt: Date;
+}
+
+// Minimal surface of PaperTrader that strategies depend on. Lets strategies
+// reference the paper trader without an `any`, and keeps the dependency explicit.
+export interface PaperTraderLike {
+  getAllPositions(): Position[];
+  getTradeHistory(): TradeHistory[];
+  resetBalanceForNewMarket?(): Promise<void> | void;
 }
 
 // Strategy interface - implement this to create your own strategies

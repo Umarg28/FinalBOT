@@ -1,0 +1,19 @@
+{
+  "name": "betabot-analytics",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isolated PnL analytics dashboard for the Polymarket rebalancing bot. Read-only over the bot's log files - does not touch core trading.",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "ts-node src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}

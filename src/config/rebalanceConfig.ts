@@ -199,6 +199,62 @@ const DEFAULT_CONFIG: RebalanceConfig = {
 let cachedConfig: RebalanceConfig | null = null;
 
 /**
+ * Validate a config for sane bounds. Returns a list of human-readable errors
+ * (empty = valid). Guards against a bad hot-reload edit pushing garbage
+ * parameters into the live strategy.
+ */
+export function validateRebalanceConfig(config: RebalanceConfig): string[] {
+  const errors: string[] = [];
+
+  const inRange = (key: keyof RebalanceConfig, min: number, max: number) => {
+    const v = config[key] as unknown as number;
+    if (typeof v !== "number" || Number.isNaN(v) || v < min || v > max) {
+      errors.push(`${String(key)}=${v} out of range [${min}, ${max}]`);
+    }
+  };
+  const positive = (key: keyof RebalanceConfig) => {
+    const v = config[key] as unknown as number;
+    if (typeof v !== "number" || Number.isNaN(v) || v < 0) {
+      errors.push(`${String(key)}=${v} must be a non-negative number`);
+    }
+  };
+
+  // Probabilities / price thresholds must live in [0, 1].
+  inRange("target_yes_ratio", 0, 1);
+  inRange("edge_threshold", 0, 1);
+  inRange("trend_threshold", 0, 1);
+  inRange("tilt_threshold", 0, 1);
+  inRange("price_stop_threshold", 0, 1);
+  inRange("stop_add_threshold", 0, 1);
+  inRange("late_entry_threshold", 0, 1);
+  inRange("slippage_buffer", 0, 1);
+  inRange("limit_price_offset", 0, 1);
+
+  // Sizes / bankroll must be non-negative.
+  positive("bankroll_total");
+  positive("min_trade_size");
+  positive("max_trade_size");
+  positive("sizing_1h_max_trade");
+  positive("sizing_15m_max_trade");
+
+  // Ordering sanity: regime gates should be monotonic (edge <= trend <= stop).
+  if (config.edge_threshold > config.trend_threshold) {
+    errors.push(`edge_threshold (${config.edge_threshold}) must be <= trend_threshold (${config.trend_threshold})`);
+  }
+  if (config.trend_threshold > config.price_stop_threshold) {
+    errors.push(`trend_threshold (${config.trend_threshold}) must be <= price_stop_threshold (${config.price_stop_threshold})`);
+  }
+  if (config.min_trade_size > config.max_trade_size) {
+    errors.push(`min_trade_size (${config.min_trade_size}) must be <= max_trade_size (${config.max_trade_size})`);
+  }
+  if (config.order_type !== "limit" && config.order_type !== "market") {
+    errors.push(`order_type "${config.order_type}" must be "limit" or "market"`);
+  }
+
+  return errors;
+}
+
+/**
  * Load configuration from YAML file
  */
 export function loadRebalanceConfig(configPath?: string): RebalanceConfig {
@@ -225,11 +281,25 @@ export function loadRebalanceConfig(configPath?: string): RebalanceConfig {
     const loadedConfig = yaml.load(fileContents) as Partial<RebalanceConfig>;
 
     // Merge with defaults to ensure all fields are present
-    cachedConfig = {
+    const merged: RebalanceConfig = {
       ...DEFAULT_CONFIG,
       ...loadedConfig,
     };
 
+    // Validate before accepting. On the initial load, an invalid file falls back
+    // to safe defaults; hot-reload rejection (keeping the prior config) is handled
+    // in reloadRebalanceConfig().
+    const errors = validateRebalanceConfig(merged);
+    if (errors.length > 0) {
+      logger.error(`Invalid config in ${configFilePath}:\n  - ${errors.join("\n  - ")}`);
+      if (!cachedConfig) {
+        logger.warn("Falling back to default configuration values");
+        cachedConfig = DEFAULT_CONFIG;
+      }
+      return cachedConfig;
+    }
+
+    cachedConfig = merged;
     logger.info(`Loaded rebalance config from ${configFilePath}`);
     return cachedConfig;
   } catch (error) {
@@ -244,8 +314,35 @@ export function loadRebalanceConfig(configPath?: string): RebalanceConfig {
  * Reload configuration from file (useful for hot-reloading)
  */
 export function reloadRebalanceConfig(configPath?: string): RebalanceConfig {
-  cachedConfig = null;
-  return loadRebalanceConfig(configPath);
+  const configFileName = process.env.CONFIG_FILE || "inventory-rebalance-config.yaml";
+  const filePath = configPath || path.join(process.cwd(), configFileName);
+  const previous = cachedConfig ?? DEFAULT_CONFIG;
+
+  try {
+    if (!fs.existsSync(filePath)) {
+      logger.warn(`Config file not found at ${filePath} during reload - keeping current config`);
+      return previous;
+    }
+
+    const merged: RebalanceConfig = {
+      ...DEFAULT_CONFIG,
+      ...(yaml.load(fs.readFileSync(filePath, "utf8")) as Partial<RebalanceConfig>),
+    };
+
+    const errors = validateRebalanceConfig(merged);
+    if (errors.length > 0) {
+      logger.error(`⚠️ Config reload rejected - invalid values:\n  - ${errors.join("\n  - ")}`);
+      logger.warn("Keeping previous valid configuration");
+      return previous;
+    }
+
+    cachedConfig = merged;
+    return merged;
+  } catch (error) {
+    logger.error(`⚠️ Config reload failed for ${filePath}:`, error);
+    logger.warn("Keeping previous valid configuration");
+    return previous;
+  }
 }
 
 /**

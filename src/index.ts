@@ -5,17 +5,19 @@ getRunId(); // Initialize runId immediately
 
 import { connectDB, disconnectDB } from "./config/db";
 import { ENV } from "./config/env";
-import { createClobClient } from "./services/clobClient";
+import { createClobClient, getClobApiCreds } from "./services/clobClient";
 import { MarketDataService } from "./services/marketData";
 import { EnhancedMarketDataService } from "./services/enhancedMarketData";
 import { TradeExecutor } from "./services/tradeExecutor";
 import { EnhancedTradeExecutor } from "./services/enhancedTradeExecutor";
+import officialRealtimeStream from "./services/officialRealtimeStream";
+import WalletReadinessService from "./services/walletReadiness";
 import { PaperTrader } from "./services/paperTrader";
 import { WalletPnLService } from "./services/walletPnLService";
 import { Dashboard } from "./services/dashboard";
 import { StrategyManager, BaseStrategy } from "./strategies";
 import { TradeSignal } from "./interfaces";
-import logger from "./utils/logger";
+import logger, { LogLevel } from "./utils/logger";
 
 // Import price stream logger - starts WebSocket connection for live prices
 import priceStreamLogger from "./services/priceStreamLogger";
@@ -49,6 +51,7 @@ export class PolymarketBot {
   private isRunning: boolean = false;
   private isPaperMode: boolean;
   private isWatcherMode: boolean;
+  private officialRealtimeRefreshTimer?: NodeJS.Timeout;
 
   constructor() {
     this.isPaperMode = ENV.PAPER_MODE;
@@ -74,6 +77,28 @@ export class PolymarketBot {
     // Initialize CLOB client
     const clobClient = await createClobClient();
 
+    if (!this.isPaperMode && !this.isWatcherMode) {
+      const walletReadiness = new WalletReadinessService();
+      const readiness = await walletReadiness.logReadiness(ENV.USER_ADDRESS);
+      if (!readiness.ready && ENV.REQUIRE_TRADING_APPROVALS) {
+        throw new Error(`Live wallet readiness failed: ${readiness.issues.join("; ")}`);
+      }
+    }
+
+    if (ENV.ENABLE_OFFICIAL_REALTIME) {
+      officialRealtimeStream.start();
+      this.startOfficialRealtimeSubscriptions();
+      if (!this.isPaperMode && !this.isWatcherMode) {
+        officialRealtimeStream.subscribeUserEvents(getClobApiCreds());
+        officialRealtimeStream.on("userOrder", (order) => {
+          logger.debug(`[OFFICIAL-RT] User order event: ${JSON.stringify(order)}`);
+        });
+        officialRealtimeStream.on("userTrade", (trade) => {
+          logger.info(`[OFFICIAL-RT] User trade event: ${JSON.stringify(trade)}`);
+        });
+      }
+    }
+
     // Initialize services (use enhanced services if enabled)
     if (ENV.USE_ENHANCED_SERVICES) {
       logger.info("Using enhanced services with poly-sdk");
@@ -85,7 +110,7 @@ export class PolymarketBot {
         this.walletPnLService = new WalletPnLService();
         // Pass SDK if available
         if (this.marketData instanceof EnhancedMarketDataService) {
-          const sdk = (this.marketData as any).sdk;
+          const sdk = this.marketData.getSdk();
           if (sdk) {
             await this.walletPnLService.initialize(sdk);
           } else {
@@ -349,6 +374,12 @@ export class PolymarketBot {
       // Set display mode to WATCH
       marketTracker.setDisplayMode('WATCH');
 
+      // Quiet the console so the live dashboard doesn't flicker (file logs unaffected).
+      if (ENV.DASHBOARD_QUIET) {
+        logger.info("Dashboard mode: console quieted to WARN+ (set DASHBOARD_QUIET=false to show all logs). Full logs still written to logs/.");
+        logger.setConsoleLogLevel(LogLevel.WARN);
+      }
+
       // Run the marketTracker display loop
       while (this.isRunning) {
         try {
@@ -380,6 +411,12 @@ export class PolymarketBot {
     if (this.isPaperMode) {
       marketTracker.setDisplayMode('PAPER');
       logger.info("Paper mode: Dashboard will display live market data and paper trades");
+
+      // Quiet the console so the live dashboard doesn't flicker (file logs unaffected).
+      if (ENV.DASHBOARD_QUIET) {
+        logger.info("Dashboard mode: console quieted to WARN+ (set DASHBOARD_QUIET=false to show all logs). Full logs still written to logs/.");
+        logger.setConsoleLogLevel(LogLevel.WARN);
+      }
 
       // Set up market close callback to settle positions and return capital
       marketTracker.setMarketCloseCallback(async (closedMarket) => {
@@ -600,6 +637,12 @@ export class PolymarketBot {
     // Stop config file watcher
     stopConfigWatcher();
 
+    if (this.officialRealtimeRefreshTimer) {
+      clearInterval(this.officialRealtimeRefreshTimer);
+      this.officialRealtimeRefreshTimer = undefined;
+    }
+    officialRealtimeStream.stop();
+
     // Stop web dashboard server
     if (this.appServer) {
       this.appServer.stop();
@@ -646,6 +689,23 @@ export class PolymarketBot {
 
     await disconnectDB();
     logger.success("Bot stopped");
+  }
+
+  private startOfficialRealtimeSubscriptions(): void {
+    const refresh = () => {
+      const tokenIds: string[] = [];
+      for (const marketMap of [priceStreamLogger.getCurrentMarkets(), priceStreamLogger.getNextMarkets()]) {
+        for (const market of marketMap.values()) {
+          for (const token of market.tokens || []) {
+            if (token.token_id) tokenIds.push(token.token_id);
+          }
+        }
+      }
+      officialRealtimeStream.setMarketTokenIds([...new Set(tokenIds)]);
+    };
+
+    refresh();
+    this.officialRealtimeRefreshTimer = setInterval(refresh, ENV.OFFICIAL_REALTIME_REFRESH_MS);
   }
 
   private sleep(ms: number): Promise<void> {

@@ -115,6 +115,18 @@ export const ENV = {
   // Enhanced services (poly-sdk)
   USE_ENHANCED_SERVICES: getEnvVarBoolean("USE_ENHANCED_SERVICES", true), // Enable poly-sdk enhanced services
 
+  // Official Polymarket real-time data client. This runs alongside the legacy
+  // price stream logger so existing dashboards keep working while newer
+  // clob_market/clob_user events are available for live accuracy.
+  ENABLE_OFFICIAL_REALTIME: getEnvVarBoolean("ENABLE_OFFICIAL_REALTIME", true),
+  OFFICIAL_REALTIME_DEBUG: getEnvVarBoolean("OFFICIAL_REALTIME_DEBUG", false),
+  OFFICIAL_REALTIME_REFRESH_MS: getEnvVarNumber("OFFICIAL_REALTIME_REFRESH_MS", 30000),
+
+  // Wallet readiness checks for live mode.
+  MIN_MATIC_BALANCE: getEnvVarFloat("MIN_MATIC_BALANCE", 0.05),
+  MIN_USDCE_BALANCE: getEnvVarFloat("MIN_USDCE_BALANCE", 1),
+  REQUIRE_TRADING_APPROVALS: getEnvVarBoolean("REQUIRE_TRADING_APPROVALS", false),
+
   // Web Dashboard settings
   ENABLE_WEB_DASHBOARD: getEnvVarBoolean("ENABLE_WEB_DASHBOARD", false), // Enable web dashboard server
   WEB_DASHBOARD_PORT: getEnvVarNumber("WEB_DASHBOARD_PORT", 3000), // Port for web dashboard
@@ -134,6 +146,35 @@ export const ENV = {
 
   // Quiet mode - suppress terminal output (for multi-bot dashboard)
   QUIET_MODE: getEnvVarBoolean("QUIET_MODE", false),
+
+  // When the live terminal dashboard (marketTracker) is active, suppress noisy
+  // INFO/TRADE console output so the dashboard doesn't flicker. File logging is
+  // unaffected - everything is still written to logs/. Set to false to see all
+  // logs in the terminal again. (Warnings and errors are always shown.)
+  DASHBOARD_QUIET: getEnvVarBoolean("DASHBOARD_QUIET", true),
+
+  // ─── Live execution: fees & risk controls ──────────────────────────────────
+  // Polymarket fee rate in basis points. Currently 0 for these markets, but
+  // centralized here so live PnL doesn't silently drift if fees are introduced.
+  FEE_RATE_BPS: getEnvVarNumber("FEE_RATE_BPS", 0),
+
+  // When a pre-trade safety check (e.g. market-start validation) throws in LIVE
+  // mode, reject the trade ("fail closed") instead of letting it through.
+  // Set to false only if you understand the risk of trading on unvalidated markets.
+  FAIL_CLOSED_ON_VALIDATION_ERROR: getEnvVarBoolean("FAIL_CLOSED_ON_VALIDATION_ERROR", true),
+
+  // Hard pre-trade risk limits (live mode only). 0 = disabled.
+  // Max USDC notional (price * size) allowed for a single order.
+  MAX_ORDER_NOTIONAL_USDC: getEnvVarFloat("MAX_ORDER_NOTIONAL_USDC", 50),
+  // Max total open notional exposure across all live positions.
+  MAX_TOTAL_EXPOSURE_USDC: getEnvVarFloat("MAX_TOTAL_EXPOSURE_USDC", 500),
+  // Cumulative realized loss (USDC) in a UTC day that trips the kill-switch.
+  MAX_DAILY_LOSS_USDC: getEnvVarFloat("MAX_DAILY_LOSS_USDC", 200),
+
+  // Reject a live order if the latest price update for its token is older than
+  // this (ms). Protects against trading on stale WebSocket data, especially on
+  // retries for fast-moving short-window markets. 0 = disabled.
+  MAX_PRICE_STALENESS_MS: getEnvVarNumber("MAX_PRICE_STALENESS_MS", 5000),
 };
 
 export default ENV;

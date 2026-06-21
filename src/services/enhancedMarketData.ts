@@ -59,6 +59,14 @@ export class EnhancedMarketDataService extends MarketDataService {
   }
 
   /**
+   * Expose the underlying poly-sdk instance (or undefined if not initialized).
+   * Typed as `unknown` so callers must narrow before use rather than relying on `any`.
+   */
+  getSdk(): unknown {
+    return this.sdkInitialized ? this.sdk : undefined;
+  }
+
+  /**
    * Initialize the SDK (async initialization if needed)
    */
   async initialize(): Promise<void> {

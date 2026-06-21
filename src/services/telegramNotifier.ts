@@ -12,11 +12,23 @@ const TELEGRAM_CONFIG = {
   ADMIN_CHAT_ID: '7914196017',
 };
 
-// Rate limiting to avoid spam
+// Rate limiting to avoid spam.
+//  - MIN_INTERVAL_MS: throttle per message kind (type+title+market)
+//  - GLOBAL_MIN_INTERVAL_MS: hard cap on how often ANY telegram alert is sent,
+//    so many distinct per-market alerts can't collectively spam the chat.
+// All tunable via env so you can quiet things down without code changes.
 const RATE_LIMIT = {
-  MIN_INTERVAL_MS: 60000, // 1 minute between similar messages
+  MIN_INTERVAL_MS: Number(process.env.TELEGRAM_MIN_INTERVAL_MS) || 15 * 60 * 1000, // 15 min per kind
+  GLOBAL_MIN_INTERVAL_MS: Number(process.env.TELEGRAM_GLOBAL_MIN_INTERVAL_MS) || 5 * 60 * 1000, // 5 min between any alerts
   lastSentTimes: new Map<string, number>(),
+  lastGlobalSent: 0,
 };
+
+// Master switches. Default: alerts on, but noisy "warning"-level alerts off
+// (price delays, market skips, missing markets) since those fire constantly
+// during normal operation. Set TELEGRAM_WARNINGS_ENABLED=true to re-enable.
+const ALERTS_ENABLED = (process.env.TELEGRAM_ALERTS_ENABLED ?? 'true').toLowerCase() === 'true';
+const WARNINGS_ENABLED = (process.env.TELEGRAM_WARNINGS_ENABLED ?? 'false').toLowerCase() === 'true';
 
 export type AlertType = 'error' | 'warning' | 'info';
 
@@ -71,17 +83,31 @@ async function sendTelegramMessage(text: string): Promise<boolean> {
  * Format and send an alert to Telegram
  */
 export async function sendAlert(message: TelegramMessage): Promise<boolean> {
-  // Rate limiting - avoid spam for same type of message
-  const rateKey = `${message.type}:${message.title}:${message.market || 'global'}`;
-  const lastSent = RATE_LIMIT.lastSentTimes.get(rateKey) || 0;
   const now = Date.now();
 
+  // Master kill-switch and noisy-warning suppression.
+  if (!ALERTS_ENABLED) return false;
+  if (message.type === 'warning' && !WARNINGS_ENABLED) {
+    logger.debug(`[TELEGRAM] Warning suppressed (TELEGRAM_WARNINGS_ENABLED=false): ${message.title}`);
+    return false;
+  }
+
+  // Per-kind throttle.
+  const rateKey = `${message.type}:${message.title}:${message.market || 'global'}`;
+  const lastSent = RATE_LIMIT.lastSentTimes.get(rateKey) || 0;
   if (now - lastSent < RATE_LIMIT.MIN_INTERVAL_MS) {
-    logger.debug(`[TELEGRAM] Rate limited: ${rateKey}`);
+    logger.debug(`[TELEGRAM] Rate limited (per-kind): ${rateKey}`);
+    return false;
+  }
+
+  // Global throttle so many distinct per-market alerts can't collectively spam.
+  if (now - RATE_LIMIT.lastGlobalSent < RATE_LIMIT.GLOBAL_MIN_INTERVAL_MS) {
+    logger.debug(`[TELEGRAM] Rate limited (global): ${rateKey}`);
     return false;
   }
 
   RATE_LIMIT.lastSentTimes.set(rateKey, now);
+  RATE_LIMIT.lastGlobalSent = now;
 
   // Format message with emoji based on type
   const emoji = message.type === 'error' ? '🚨' : message.type === 'warning' ? '⚠️' : 'ℹ️';

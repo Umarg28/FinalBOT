@@ -108,6 +108,9 @@ interface AssetState {
   bestAsk: number | null;
   lastTradePrice: number | null;
   marketConditionId: string | null;
+  // Wall-clock time (ms) of the most recent price/book update for this asset.
+  // Used by the live executor to reject trades against stale price data.
+  lastUpdateMs: number | null;
 }
 
 interface MarketToken {
@@ -1336,6 +1339,7 @@ class PriceStreamLogger {
         bestAsk: null,
         lastTradePrice: null,
         marketConditionId: null,
+        lastUpdateMs: null,
       });
     }
   }
@@ -1350,6 +1354,7 @@ class PriceStreamLogger {
           bestAsk: null,
           lastTradePrice: null,
           marketConditionId: null,
+          lastUpdateMs: null,
         });
       }
     }
@@ -1556,6 +1561,7 @@ class PriceStreamLogger {
     state.bestBid = bestBid;
     state.bestAsk = bestAsk;
     state.marketConditionId = market;
+    state.lastUpdateMs = Date.now();
 
     const midPrice = computeMidPrice(bestBid, bestAsk);
     const price = midPrice ?? state.lastTradePrice;
@@ -1590,6 +1596,7 @@ class PriceStreamLogger {
 
       if (best_bid !== undefined) state.bestBid = safeParseNumber(best_bid);
       if (best_ask !== undefined) state.bestAsk = safeParseNumber(best_ask);
+      state.lastUpdateMs = Date.now();
 
       log('debug', `[PRICE-STREAM] handlePriceChangeEvent() - asset_id=${asset_id}, bestBid: ${oldBid} -> ${state.bestBid}, bestAsk: ${oldAsk} -> ${state.bestAsk}`);
 
@@ -1618,6 +1625,7 @@ class PriceStreamLogger {
 
     state.lastTradePrice = tradePrice;
     state.marketConditionId = market;
+    state.lastUpdateMs = Date.now();
 
     const midPrice = computeMidPrice(state.bestBid, state.bestAsk);
     const price = midPrice ?? tradePrice;
@@ -1634,6 +1642,7 @@ class PriceStreamLogger {
     state.bestBid = safeParseNumber(best_bid);
     state.bestAsk = safeParseNumber(best_ask);
     state.marketConditionId = market;
+    state.lastUpdateMs = Date.now();
 
     const midPrice = computeMidPrice(state.bestBid, state.bestAsk);
     const price = midPrice ?? state.lastTradePrice;
@@ -1946,6 +1955,19 @@ class PriceStreamLogger {
 
     // Fall back to last price or last trade price
     return state.lastPrice ?? state.lastTradePrice ?? null;
+  }
+
+  /**
+   * Age (in ms) of the most recent price update for a token, or null if the
+   * token is unknown / has never received a price. Used by the live executor
+   * to reject trades placed against stale market data.
+   */
+  getPriceAgeMs(tokenId: string): number | null {
+    const state = this.assetStates.get(tokenId);
+    if (!state || state.lastUpdateMs === null) {
+      return null;
+    }
+    return Date.now() - state.lastUpdateMs;
   }
 
   /**

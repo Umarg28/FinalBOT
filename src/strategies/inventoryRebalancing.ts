@@ -1,10 +1,12 @@
 import { BaseStrategy } from "./baseStrategy";
-import { StrategyResult, Market, Position, TradeSignal } from "../interfaces";
+import { StrategyResult, Market, Position, TradeSignal, PaperTraderLike } from "../interfaces";
 import { getRebalanceConfig, RebalanceConfig } from "../config/rebalanceConfig";
 import { MarketDataService } from "../services/marketData";
 import priceStreamLogger from "../services/priceStreamLogger";
 import { PnLCalculator } from "../utils/pnlCalculator";
 import telegramNotifier from "../services/telegramNotifier";
+import { applyRegimeAdjustment } from "./regime";
+import { computeBaseSize, applyBellCurve, adaptiveMultiplier, MarketCategory } from "./sizing";
 
 /**
  * Flip Recovery State Machine
@@ -67,7 +69,7 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
   // Track duration check logs per market (to log once per market window)
   private durationCheckLogged: Set<string> = new Set();
   // Optional paper trader for balance reset on new market windows
-  private paperTrader?: any;
+  private paperTrader?: PaperTraderLike;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // TRADE COUNTERS: Track regime effects and trade distribution
@@ -97,7 +99,7 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     'ethereum-up-or-down'
   ];
 
-  constructor(config: any, marketData: MarketDataService, paperTrader?: any) {
+  constructor(config: any, marketData: MarketDataService, paperTrader?: PaperTraderLike) {
     super(config, marketData);
     this.paperTrader = paperTrader;
   }
@@ -758,66 +760,38 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     // ═══════════════════════════════════════════════════════════════════════════
     const maxPrice = Math.max(yesPrice, noPrice);
 
-    // STOP THRESHOLD: Absolute gate at price_stop_threshold (price nearly decided)
-    // Always applies, even during FLIP_RECOVERY - once decided, stop the loser
-    if (yesPrice >= config.price_stop_threshold) {
-      baseDownAmount = 0;  // UP winning decisively → zero DOWN at source
+    // Regime suppression (pure logic in ./regime). Precedence: STOP > TREND > EDGE.
+    // STOP always applies; TREND/EDGE are skipped during FLIP_RECOVERY.
+    const regimeResult = applyRegimeAdjustment(
+      baseUpAmount,
+      baseDownAmount,
+      yesPrice,
+      noPrice,
+      config,
+      isInFlipRecovery
+    );
+    baseUpAmount = regimeResult.upAmount;
+    baseDownAmount = regimeResult.downAmount;
+
+    if (regimeResult.regime === "STOP") {
       this.tradeCounters.stopZeroed++;
       this.logThrottled(
         `regime_stop_${marketType}`,
-        `[${this.getShortName(marketType)}] REGIME STOP: UP price ${yesPrice.toFixed(2)} >= ${config.price_stop_threshold} → DOWN zeroed at source`
+        `[${this.getShortName(marketType)}] REGIME STOP: ${regimeResult.suppressedSide} zeroed at source (UP ${yesPrice.toFixed(2)}, DOWN ${noPrice.toFixed(2)} vs stop ${config.price_stop_threshold})`
       );
-    } else if (noPrice >= config.price_stop_threshold) {
-      baseUpAmount = 0;    // DOWN winning decisively → zero UP at source
-      this.tradeCounters.stopZeroed++;
+    } else if (regimeResult.regime === "TREND") {
+      this.tradeCounters.trendZeroed++;
       this.logThrottled(
-        `regime_stop_${marketType}`,
-        `[${this.getShortName(marketType)}] REGIME STOP: DOWN price ${noPrice.toFixed(2)} >= ${config.price_stop_threshold} → UP zeroed at source`
+        `regime_trend_${marketType}`,
+        `[${this.getShortName(marketType)}] REGIME TREND: ${regimeResult.suppressedSide} zeroed at source (max ${maxPrice.toFixed(2)} >= ${config.trend_threshold})`
       );
-    }
-    // TREND THRESHOLD: Gate at trend_threshold (clear trend emerging)
-    // Uses dedicated trend_threshold config (separate from tilt_threshold for independent tuning)
-    // Skip during FLIP_RECOVERY to allow rebalancing toward new winner
-    else if (!isInFlipRecovery && maxPrice >= config.trend_threshold) {
-      if (yesPrice > noPrice) {
-        baseDownAmount = 0;  // UP trending → zero DOWN at source
-        this.tradeCounters.trendZeroed++;
-        this.logThrottled(
-          `regime_trend_${marketType}`,
-          `[${this.getShortName(marketType)}] REGIME TREND: UP price ${yesPrice.toFixed(2)} >= ${config.trend_threshold} → DOWN zeroed at source`
-        );
-      } else {
-        baseUpAmount = 0;    // DOWN trending → zero UP at source
-        this.tradeCounters.trendZeroed++;
-        this.logThrottled(
-          `regime_trend_${marketType}`,
-          `[${this.getShortName(marketType)}] REGIME TREND: DOWN price ${noPrice.toFixed(2)} >= ${config.trend_threshold} → UP zeroed at source`
-        );
-      }
-    }
-    // EDGE THRESHOLD: Reduce losing side when price drifting (early trend detection)
-    // Applies 0.25× multiplier AND clamps loser to max 0.5× winner
-    // Skip during FLIP_RECOVERY to allow rebalancing toward new winner
-    else if (!isInFlipRecovery && maxPrice >= config.edge_threshold) {
-      if (yesPrice > noPrice) {
-        // UP drifting → reduce DOWN to 25%, then clamp to max 50% of UP
-        baseDownAmount *= 0.25;
-        baseDownAmount = Math.min(baseDownAmount, baseUpAmount * 0.5);
-        this.tradeCounters.edgeReduced++;
-        this.logThrottled(
-          `regime_edge_${marketType}`,
-          `[${this.getShortName(marketType)}] REGIME EDGE: UP price ${yesPrice.toFixed(2)} >= ${config.edge_threshold} → DOWN reduced to $${baseDownAmount.toFixed(2)} (25% + 0.5× clamp)`
-        );
-      } else {
-        // DOWN drifting → reduce UP to 25%, then clamp to max 50% of DOWN
-        baseUpAmount *= 0.25;
-        baseUpAmount = Math.min(baseUpAmount, baseDownAmount * 0.5);
-        this.tradeCounters.edgeReduced++;
-        this.logThrottled(
-          `regime_edge_${marketType}`,
-          `[${this.getShortName(marketType)}] REGIME EDGE: DOWN price ${noPrice.toFixed(2)} >= ${config.edge_threshold} → UP reduced to $${baseUpAmount.toFixed(2)} (25% + 0.5× clamp)`
-        );
-      }
+    } else if (regimeResult.regime === "EDGE") {
+      this.tradeCounters.edgeReduced++;
+      const reducedAmt = regimeResult.suppressedSide === "DOWN" ? baseDownAmount : baseUpAmount;
+      this.logThrottled(
+        `regime_edge_${marketType}`,
+        `[${this.getShortName(marketType)}] REGIME EDGE: ${regimeResult.suppressedSide} reduced to $${reducedAmt.toFixed(2)} (max ${maxPrice.toFixed(2)} >= ${config.edge_threshold}, 25% + 0.5× clamp)`
+      );
     }
 
     // TILT BOOST: When one side >= tilt_threshold, boost trades on winning side
@@ -1211,50 +1185,26 @@ export class InventoryBalancedRebalancingStrategy extends BaseStrategy {
     const is15m = this.is15MinuteMarket(marketType);
     const is5m = this.is5MinuteMarket(marketType);
 
-    let baseSize: number;
-    if (is1h) {
-      baseSize = config.sizing_1h_base + (price * config.sizing_1h_multiplier);
-      baseSize = Math.max(config.sizing_1h_min_trade, Math.min(baseSize, config.sizing_1h_max_trade));
-    } else if (is15m) {
-      baseSize = config.sizing_15m_base + (price * config.sizing_15m_multiplier);
-      baseSize = Math.max(config.sizing_15m_min_trade, Math.min(baseSize, config.sizing_15m_max_trade));
-    } else if (is5m) {
-      const base5m = config.sizing_5m_base ?? config.sizing_15m_base;
-      const mult5m = config.sizing_5m_multiplier ?? config.sizing_15m_multiplier;
-      const min5m = config.sizing_5m_min_trade ?? config.sizing_15m_min_trade;
-      const max5m = config.sizing_5m_max_trade ?? config.sizing_15m_max_trade;
-      baseSize = base5m + (price * mult5m);
-      baseSize = Math.max(min5m, Math.min(baseSize, max5m));
-    } else {
-      baseSize = config.sizing_15m_base + (price * config.sizing_15m_multiplier);
-      baseSize = Math.max(config.sizing_15m_min_trade, Math.min(baseSize, config.sizing_15m_max_trade));
-    }
+    const category: MarketCategory = is1h ? "1h" : is5m ? "5m" : "15m";
+    let baseSize = computeBaseSize(price, category, config);
 
-    // Apply bell curve if enabled
-    // Peak at 0.50, minimum at extremes (0.10, 0.90)
-    // FLIP RECOVERY: Disable bell curve for flat sizing during recovery
-    if (config.bell_curve_enabled && !isInFlipRecovery) {
-      const distanceFromCenter = Math.abs(price - 0.5);
-      // Linear interpolation: at center (distance=0) → peak, at edge (distance=0.5) → extreme
-      // multiplier = extreme + (peak - extreme) × (1 - distance × 2)
-      const curveMultiplier = config.bell_curve_extreme_multiplier +
-        (config.bell_curve_peak_multiplier - config.bell_curve_extreme_multiplier) *
-        Math.max(0, 1 - distanceFromCenter * 2);
-      baseSize *= curveMultiplier;
+    // Apply bell curve if enabled (disabled during flip recovery for flat sizing).
+    if (!isInFlipRecovery) {
+      baseSize = applyBellCurve(baseSize, price, config);
     }
 
     // Apply adaptive sizing if enabled and market data available
     if (config.adaptive_sizing_enabled && conditionId && yesTokenId && noTokenId) {
       const marketPnL = this.calculateMarketPnL(conditionId, yesTokenId, noTokenId);
       if (marketPnL) {
-        const adaptiveMultiplier = this.calculateAdaptiveMultiplier(marketPnL.totalPnL, marketPnL.costBasis);
-        
+        const mult = adaptiveMultiplier(marketPnL.totalPnL, marketPnL.costBasis, config);
+
         // If multiplier is 0.0, stop trading (loss exceeded limit)
-        if (adaptiveMultiplier === 0.0) {
+        if (mult === 0.0) {
           return 0; // Stop trading this market
         }
 
-        baseSize *= adaptiveMultiplier;
+        baseSize *= mult;
 
         // Apply safety limit: max_recovery_bet_pct of balance
         const maxRecoveryBet = this.balance * config.max_recovery_bet_pct;

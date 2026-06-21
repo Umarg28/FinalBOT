@@ -3,6 +3,8 @@ import { TradeSignal, TradeExecution, TradeHistory } from "../interfaces";
 import { TradeHistoryModel } from "../models/tradeHistory";
 import { ENV } from "../config/env";
 import logger from "../utils/logger";
+import { parseFillFromResponse, computeFee } from "../utils/orderFill";
+import { validateLiveOrder, liveRiskManager } from "./tradeValidation";
 
 export class TradeExecutor {
   private clobClient: ClobClient;
@@ -30,83 +32,56 @@ export class TradeExecutor {
       return execution;
     }
 
-    // CRITICAL: Validate market has started (not a future event)
-    // Markets must match live ET time - do not trade on future events
-    // Also check nextMarkets - allow trading on next markets if they've started (10s before current ends)
-    try {
-      const priceStreamLogger = (await import("./priceStreamLogger")).default;
-      const currentMarkets = priceStreamLogger.getCurrentMarkets();
-      const nextMarkets = priceStreamLogger.getNextMarkets();
-      
-      // Find the market for this token (check both current and next markets)
-      let marketInfo = null;
-      for (const market of currentMarkets.values()) {
-        if (market.tokens.some(t => t.token_id === signal.tokenId)) {
-          marketInfo = market;
-          break;
-        }
-      }
-      
-      // If not found in current markets, check next markets (for early trading)
-      if (!marketInfo) {
-        for (const market of nextMarkets.values()) {
-          if (market.tokens.some(t => t.token_id === signal.tokenId)) {
-            marketInfo = market;
-            break;
-          }
-        }
-      }
-
-      if (marketInfo) {
-        // Check if market has started (start_time_iso <= now)
-        const startTime = new Date(marketInfo.start_time_iso).getTime();
-        const now = Date.now();
-        const timeUntilStart = startTime - now;
-
-        if (timeUntilStart > 0) {
-          // Market hasn't started yet (future event) - reject trade
-          execution.status = "failed";
-          execution.error = `Market has not started yet. Starts in ${Math.round(timeUntilStart / 1000)}s (${new Date(startTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET)`;
-          logger.warn(`[LIVE] Trade rejected - future market: ${marketInfo.question} (${marketInfo.slug}) - starts at ${new Date(startTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET`);
-          return execution;
-        }
-
-        logger.debug(`[LIVE] Market validation passed - market has started: ${marketInfo.question} (start: ${new Date(startTime).toLocaleString('en-US', { timeZone: 'America/New_York' })} ET)`);
-      } else {
-        logger.warn(`[LIVE] Could not find market info for token ${signal.tokenId} - allowing trade (market may not be in current markets list)`);
-      }
-    } catch (error) {
-      logger.error(`[LIVE] Error validating market start time:`, error);
-      // Allow trade to proceed if validation fails (fail open for safety)
+    // Shared pre-trade validation: risk limits, price staleness, market-start.
+    // Fails CLOSED on errors in live mode (see ENV.FAIL_CLOSED_ON_VALIDATION_ERROR).
+    const validation = await validateLiveOrder(signal, "LIVE");
+    if (!validation.allowed) {
+      execution.status = "failed";
+      execution.error = validation.reason || "Rejected by pre-trade validation";
+      execution.rejectedPreTrade = true;
+      return execution;
     }
 
     try {
       const side = signal.side === "BUY" ? Side.BUY : Side.SELL;
 
-      // Create the order
+      // Create the order (fee rate centralized in ENV.FEE_RATE_BPS).
       const order = await this.clobClient.createOrder({
         tokenID: signal.tokenId,
         price: signal.price,
         size: signal.size,
         side,
-        feeRateBps: 0,
+        feeRateBps: ENV.FEE_RATE_BPS,
       });
 
       // Post the order with FOK (Fill-or-Kill)
       const response = await this.clobClient.postOrder(order, OrderType.FOK);
 
       if (response.success) {
+        // Read back the ACTUAL fill - FOK can fill at a better price than requested.
+        const fill = parseFillFromResponse(response, signal.side, signal.price, signal.size);
+        if (!fill.fromResponse) {
+          logger.warn(
+            `[LIVE] Could not parse actual fill from response; booking at signal price $${signal.price}. Live PnL may be approximate.`
+          );
+        }
         execution.status = "filled";
-        execution.executedPrice = signal.price;
-        execution.executedSize = signal.size;
+        execution.executedPrice = fill.price;
+        execution.executedSize = fill.size;
+        execution.fees = computeFee(fill.price * fill.size, ENV.FEE_RATE_BPS);
         execution.transactionHash = response.transactionHash;
+
+        // Track exposure for the risk manager.
+        liveRiskManager.recordFill(
+          (signal.side === "BUY" ? 1 : -1) * fill.price * fill.size
+        );
 
         // Save to database
         await this.saveTradeHistory(signal, execution);
 
         logger.trade(
           signal.side,
-          `${signal.size} @ $${signal.price} | Strategy: ${signal.strategyName}`
+          `${fill.size} @ $${fill.price.toFixed(4)} | Strategy: ${signal.strategyName}`
         );
       } else {
         execution.status = "failed";
@@ -133,6 +108,15 @@ export class TradeExecutor {
       lastExecution = await this.executeOrder(signal);
 
       if (lastExecution.status === "filled") {
+        return lastExecution;
+      }
+
+      // Don't retry orders blocked by a pre-trade check - re-sending won't help
+      // and, for fast short-window markets, a delayed retry risks a much worse fill.
+      // executeOrder re-runs validation (incl. price-staleness) on every attempt,
+      // so a stale-price retry will be rejected here.
+      if (lastExecution.rejectedPreTrade) {
+        logger.warn(`Aborting retries - pre-trade rejection: ${lastExecution.error}`);
         return lastExecution;
       }
 
