@@ -23,9 +23,10 @@ dashboard with per-market and daily PnL, profitability breakdowns, and a
 ## Cloudflare tunnel + Telegram
 
 On start it launches a Cloudflare quick tunnel and (if configured) sends the
-public link to Telegram. Quick tunnels rotate/expire; the dashboard has a
-**♻️ New tunnel** button to rotate manually, and the new link is auto-sent to
-Telegram. If `cloudflared` isn't installed: `brew install cloudflared`.
+public link to Telegram only after the public HTTPS URL passes a reachability
+probe. Quick tunnels rotate/expire; the dashboard has a **♻️ New tunnel** button
+to rotate manually, and the new verified link is auto-sent to Telegram. If
+`cloudflared` isn't installed: `brew install cloudflared`.
 
 ## Setup
 

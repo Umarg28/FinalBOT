@@ -172,7 +172,7 @@ export async function alertWebSocketDisconnected(code: number, reconnectAttempts
     `Bot is attempting to reconnect...`;
 
   return sendAlert({
-    type: 'error',
+    type: 'warning',
     title: 'WebSocket Disconnected',
     details,
   });

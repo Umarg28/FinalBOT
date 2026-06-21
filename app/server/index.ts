@@ -12,6 +12,11 @@ import { ClientMessage, ExternalBotData, BotSummary } from './types';
 import { externalWalletTracker } from './externalWalletTracker';
 import { botSpawner } from './botSpawner';
 import ENV from '../../src/config/env';
+import AppTunnelManager from './appTunnel';
+import { loadRecords } from '../../analytics/src/dataSource';
+import { overview, perMarketType, daily } from '../../analytics/src/analytics';
+import { analyzeOverall } from '../../analytics/src/heuristics';
+import { analyzeWithAI } from '../../analytics/src/aiAnalysis';
 
 // Simple API key for external bot connections
 // Set via DASHBOARD_API_KEY env var or use default
@@ -37,6 +42,7 @@ export class AppServer {
   private updateInterval: NodeJS.Timeout | null = null;
   private port: number;
   private publicDir: string;
+  private tunnel: AppTunnelManager | null = null;
 
   // External bot data storage
   private externalBots: Map<string, {
@@ -117,6 +123,11 @@ export class AppServer {
    * Called after server successfully starts listening
    */
   private onServerStarted(): void {
+    if ((process.env.ENABLE_WEBAPP_TUNNEL ?? 'true').toLowerCase() !== 'false') {
+      this.tunnel = new AppTunnelManager(this.port);
+      this.tunnel.start();
+    }
+
     // Start tracking gabagool22 wallet for balance injection (not shown as separate bot)
     const gabagoolWallet = '0x6031b6eed1c97e853c6e0f03ad3ce3529351f96d';
     externalWalletTracker.startTracking([gabagoolWallet], 5000); // Update every 5 seconds
@@ -183,6 +194,11 @@ export class AppServer {
     // Stop wallet tracker
     externalWalletTracker.stopTracking();
 
+    if (this.tunnel) {
+      this.tunnel.stop();
+      this.tunnel = null;
+    }
+
     // Close all client connections
     for (const client of this.clients) {
       client.close();
@@ -214,6 +230,40 @@ export class AppServer {
     }
 
     // Handle API endpoints
+    if (filePath === '/api/health' && req.method === 'GET') {
+      this.sendJson(res, 200, {
+        ok: true,
+        app: 'BETABOT webapp',
+        tunnelUrl: this.tunnel?.getUrl() || null,
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    if (filePath === '/api/tunnel' && req.method === 'GET') {
+      this.sendJson(res, 200, {
+        url: this.tunnel?.getUrl() || null,
+        enabled: Boolean(this.tunnel),
+      });
+      return;
+    }
+
+    if (filePath === '/api/tunnel/rotate' && req.method === 'POST') {
+      this.tunnel?.rotate('manual API rotation');
+      this.sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (filePath === '/api/analysis' && req.method === 'GET') {
+      this.handleAnalysis(res);
+      return;
+    }
+
+    if (filePath === '/api/analysis/ai' && req.method === 'POST') {
+      this.handleAIAnalysis(res);
+      return;
+    }
+
     if (filePath === '/api/bot' && req.method === 'POST') {
       this.handleBotDataSubmission(req, res);
       return;
@@ -308,6 +358,35 @@ export class AppServer {
       res.writeHead(200, { 'Content-Type': contentType });
       res.end(data);
     });
+  }
+
+  private sendJson(res: ServerResponse, status: number, body: unknown): void {
+    res.writeHead(status, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(JSON.stringify(body));
+  }
+
+  private handleAnalysis(res: ServerResponse): void {
+    try {
+      const records = loadRecords();
+      this.sendJson(res, 200, {
+        overview: overview(records),
+        byMarketType: perMarketType(records),
+        daily: daily(records),
+        analysis: analyzeOverall(records),
+        count: records.length,
+      });
+    } catch (error) {
+      this.sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private handleAIAnalysis(res: ServerResponse): void {
+    analyzeWithAI(loadRecords())
+      .then((text) => this.sendJson(res, 200, { text }))
+      .catch((error) => this.sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) }));
   }
 
   /**

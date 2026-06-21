@@ -128,7 +128,7 @@ export const ENV = {
   REQUIRE_TRADING_APPROVALS: getEnvVarBoolean("REQUIRE_TRADING_APPROVALS", false),
 
   // Web Dashboard settings
-  ENABLE_WEB_DASHBOARD: getEnvVarBoolean("ENABLE_WEB_DASHBOARD", false), // Enable web dashboard server
+  ENABLE_WEB_DASHBOARD: getEnvVarBoolean("ENABLE_WEB_DASHBOARD", true), // Enable web dashboard server
   WEB_DASHBOARD_PORT: getEnvVarNumber("WEB_DASHBOARD_PORT", 3000), // Port for web dashboard
 
   // External webapp forwarding (send data to another webapp)

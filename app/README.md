@@ -1,6 +1,6 @@
-# BETABOT Web Dashboard
+# BETABOT Webapp Dashboard
 
-Real-time web dashboard for BETABOT that mirrors the terminal dashboard.
+Primary real-time webapp for BETABOT. It mirrors the terminal dashboard and includes the read-only AI/analytics layer.
 
 ## Features
 
@@ -10,6 +10,8 @@ Real-time web dashboard for BETABOT that mirrors the terminal dashboard.
 - Portfolio summary (balance, PnL, trades)
 - Current and upcoming market cards with prices, positions, and PnL
 - Market type breakdown (15-minute vs 1-hour markets)
+- AI strategy analysis tab using settled PnL logs
+- Cloudflare quick-tunnel link sent to Telegram after the webapp is reachable
 
 ## Usage
 
@@ -20,6 +22,7 @@ Set the environment variable in your `.env` file:
 ```bash
 ENABLE_WEB_DASHBOARD=true
 WEB_DASHBOARD_PORT=3000  # Optional, defaults to 3000
+ENABLE_WEBAPP_TUNNEL=true
 ```
 
 ### Start the Bot
@@ -53,6 +56,7 @@ http://<your-computer-ip>:3000
 ├── server/
 │   ├── index.ts           # HTTP + WebSocket server
 │   ├── dashboardData.ts   # Data aggregator from marketTracker
+│   ├── appTunnel.ts       # Cloudflare tunnel for this webapp
 │   └── types.ts           # TypeScript interfaces
 └── public/
     ├── index.html         # Dashboard page
@@ -61,6 +65,8 @@ http://<your-computer-ip>:3000
         ├── dashboard.js   # WebSocket client + DOM updates
         └── formatters.js  # Number/date formatting utilities
 ```
+
+The `/api/analysis` and `/api/analysis/ai` endpoints reuse the existing read-only analytics code. They do not import trading executors or modify bot state.
 
 ## Removing the Dashboard
 

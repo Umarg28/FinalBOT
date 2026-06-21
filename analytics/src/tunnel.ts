@@ -50,12 +50,18 @@ export class TunnelManager {
   private listeners: UrlListener[] = [];
   private rotateTimer: NodeJS.Timeout | null = null;
   private fallbackTimer: NodeJS.Timeout | null = null;
+  private validationInFlight: Promise<void> | null = null;
   private stopped = false;
 
-  // If cloudflared never logs a connection within this window, fall back to a
-  // single HTTP probe and then publish best-effort so the user still gets a link.
+  // If cloudflared never logs a connection within this window, probe anyway.
+  // Do not send Telegram a "verified" link unless the HTTPS route actually
+  // answers. Cloudflare can register an edge connection before the quick-tunnel
+  // hostname is routable, which creates dead links if announced immediately.
   private static readonly CONNECT_FALLBACK_MS = 25_000;
   private static readonly PROBE_TIMEOUT_MS = 8000;
+  private static readonly PROBE_ATTEMPTS = 48;
+  private static readonly PROBE_DELAY_MS = 5000;
+  private static readonly REVALIDATE_DELAY_MS = 30_000;
 
   constructor(private port: number) {}
 
@@ -87,7 +93,7 @@ export class TunnelManager {
     }
   }
 
-  /** One-shot HTTP reachability probe (best-effort fallback only). */
+  /** One-shot HTTPS reachability probe against the public tunnel URL. */
   private async probe(url: string): Promise<boolean> {
     if (typeof fetch !== "function") return false;
     try {
@@ -99,6 +105,28 @@ export class TunnelManager {
     } catch {
       return false;
     }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async probeWithRetries(url: string): Promise<boolean> {
+    for (let attempt = 1; attempt <= TunnelManager.PROBE_ATTEMPTS; attempt++) {
+      if (this.stopped || this.pendingUrl !== url || this.currentUrl === url) return false;
+      const ok = await this.probe(url);
+      if (ok) {
+        if (attempt > 1) {
+          console.log(`[tunnel] HTTPS probe passed on attempt ${attempt}/${TunnelManager.PROBE_ATTEMPTS}`);
+        }
+        return true;
+      }
+      console.log(`[tunnel] HTTPS probe failed for ${url} (${attempt}/${TunnelManager.PROBE_ATTEMPTS})`);
+      if (attempt < TunnelManager.PROBE_ATTEMPTS) {
+        await this.sleep(TunnelManager.PROBE_DELAY_MS);
+      }
+    }
+    return false;
   }
 
   /** Publish a URL: set it live, notify listeners (Telegram / dashboard) once. */
@@ -149,6 +177,7 @@ export class TunnelManager {
     this.pendingUrl = null;
     this.connectionRegistered = false;
     this.status = "starting";
+    this.validationInFlight = null;
     if (this.fallbackTimer) {
       clearTimeout(this.fallbackTimer);
       this.fallbackTimer = null;
@@ -156,9 +185,31 @@ export class TunnelManager {
   }
 
   private maybePublish(): void {
-    if (this.pendingUrl && this.connectionRegistered && this.currentUrl !== this.pendingUrl) {
-      this.publish(this.pendingUrl, true);
+    if (!this.pendingUrl || !this.connectionRegistered || this.currentUrl === this.pendingUrl) {
+      return;
     }
+    if (this.validationInFlight) return;
+    const url = this.pendingUrl;
+    this.status = "validating";
+    this.validationInFlight = (async () => {
+      const ok = await this.probeWithRetries(url);
+      if (this.pendingUrl !== url || this.currentUrl === url || this.stopped) return;
+      if (ok) {
+        this.publish(url, true);
+      } else {
+        this.status = "validating";
+        console.warn(
+          `[tunnel] public URL still unreachable after probes; keeping same tunnel and retrying in ${TunnelManager.REVALIDATE_DELAY_MS / 1000}s: ${url}`
+        );
+        setTimeout(() => {
+          if (this.stopped || this.pendingUrl !== url || this.currentUrl === url) return;
+          this.validationInFlight = null;
+          this.maybePublish();
+        }, TunnelManager.REVALIDATE_DELAY_MS);
+      }
+    })().finally(() => {
+      if (this.validationInFlight) this.validationInFlight = null;
+    });
   }
 
   private spawnProcess(): void {
@@ -187,14 +238,14 @@ export class TunnelManager {
         this.status = "validating";
         console.log(`[tunnel] URL reported: ${url} — waiting for edge connection before publishing`);
 
-        // Fallback: if no connection log appears, probe once then publish best-effort.
+        // Fallback: if no connection log appears, validate anyway. This handles
+        // cloudflared versions/log formats that do not emit the expected text.
         if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
         this.fallbackTimer = setTimeout(async () => {
           if (this.stopped || this.pendingUrl !== url || this.currentUrl === url) return;
-          const ok = await this.probe(url);
-          if (this.pendingUrl === url && this.currentUrl !== url) {
-            this.publish(url, ok);
-          }
+          console.warn(`[tunnel] no edge connection log seen; probing public URL before publishing`);
+          this.connectionRegistered = true;
+          this.maybePublish();
         }, TunnelManager.CONNECT_FALLBACK_MS);
         this.maybePublish();
       }

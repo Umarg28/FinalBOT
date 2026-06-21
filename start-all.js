@@ -21,7 +21,7 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = __dirname;
-const startAnalytics = (process.env.START_ANALYTICS ?? "true").toLowerCase() !== "false";
+const startAnalytics = (process.env.START_ANALYTICS ?? "false").toLowerCase() === "true";
 const botTsNode = (process.env.BOT_TS_NODE ?? "false").toLowerCase() === "true";
 
 const children = [];

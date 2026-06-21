@@ -180,6 +180,7 @@
     <nav class="tabs">
       <button class="tab active" data-tab="markets">Markets</button>
       <button class="tab" data-tab="history">History</button>
+      <button class="tab" data-tab="ai">AI</button>
       <button class="tab" data-tab="bots">Compare</button>
     </nav>
 
@@ -239,6 +240,43 @@
           <div class="history-empty">
             <p>No completed markets yet</p>
           </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tab Content: AI Analysis -->
+    <div class="tab-content" id="tab-ai">
+      <section class="ai-section">
+        <div class="ai-header">
+          <div>
+            <h2>AI Strategy Analysis</h2>
+            <p>Read-only analysis from settled PnL logs. No trading code is modified.</p>
+          </div>
+          <button class="ai-action" id="ai-refresh-btn">Refresh Analysis</button>
+        </div>
+
+        <div class="ai-readiness" id="ai-readiness">
+          <span class="ai-badge">Loading</span>
+          <span class="ai-summary">Waiting for analysis...</span>
+        </div>
+
+        <div class="ai-grid">
+          <div class="ai-card">
+            <h3>Findings</h3>
+            <div id="ai-findings" class="ai-list">Loading...</div>
+          </div>
+          <div class="ai-card">
+            <h3>Parameter Suggestions</h3>
+            <div id="ai-suggestions" class="ai-list">Loading...</div>
+          </div>
+        </div>
+
+        <div class="ai-card ai-full">
+          <div class="ai-card-title-row">
+            <h3>Claude Analysis</h3>
+            <button class="ai-action secondary" id="ai-run-btn">Analyze with AI</button>
+          </div>
+          <pre id="ai-output" class="ai-output">Click “Analyze with AI” if ANTHROPIC_API_KEY is configured.</pre>
         </div>
       </section>
     </div>

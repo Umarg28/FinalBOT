@@ -54,12 +54,99 @@ class DashboardClient {
     // Initialize history filter
     this.initHistoryFilter();
 
+    // Initialize AI/analytics panel
+    this.initAIAnalysis();
+
     // Ping interval for keepalive
     setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ type: 'ping' }));
       }
     }, 30000);
+  }
+
+  initAIAnalysis() {
+    const refreshBtn = document.getElementById('ai-refresh-btn');
+    const runBtn = document.getElementById('ai-run-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => this.loadAnalysis());
+    }
+    if (runBtn) {
+      runBtn.addEventListener('click', () => this.runAIAnalysis());
+    }
+    this.loadAnalysis();
+  }
+
+  async loadAnalysis() {
+    try {
+      const res = await fetch('/api/analysis');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Analysis request failed');
+      this.renderAnalysis(data);
+    } catch (error) {
+      const output = document.getElementById('ai-output');
+      if (output) output.textContent = `Analysis unavailable: ${error.message}`;
+    }
+  }
+
+  renderAnalysis(data) {
+    const analysis = data.analysis || {};
+    const readiness = analysis.readiness || {};
+    const badge = document.querySelector('#ai-readiness .ai-badge');
+    const summary = document.querySelector('#ai-readiness .ai-summary');
+    if (badge) {
+      badge.textContent = readiness.verdict || 'unknown';
+      badge.className = `ai-badge ${(readiness.verdict || 'unknown').replace('-', '')}`;
+    }
+    if (summary) {
+      const win = Number(readiness.winRate || 0).toFixed(1);
+      const pf = readiness.profitFactor === null || readiness.profitFactor === undefined
+        ? '0.00'
+        : (readiness.profitFactor === Infinity ? '∞' : Number(readiness.profitFactor).toFixed(2));
+      summary.textContent = `${readiness.summary || 'No analysis yet.'} Win ${win}% | PF ${pf}`;
+    }
+
+    const findingsEl = document.getElementById('ai-findings');
+    if (findingsEl) {
+      const findings = analysis.findings || [];
+      findingsEl.innerHTML = findings.length
+        ? findings.map(f => `<div class="ai-item ${f.level || 'info'}">${this.escapeHtml(f.text || '')}</div>`).join('')
+        : '<div class="ai-item info">No findings yet.</div>';
+    }
+
+    const suggestionsEl = document.getElementById('ai-suggestions');
+    if (suggestionsEl) {
+      const suggestions = analysis.suggestions || [];
+      suggestionsEl.innerHTML = suggestions.length
+        ? suggestions.map(s => `<div class="ai-item suggestion">${this.escapeHtml(s)}</div>`).join('')
+        : '<div class="ai-item info">No suggestions yet.</div>';
+    }
+  }
+
+  async runAIAnalysis() {
+    const output = document.getElementById('ai-output');
+    const btn = document.getElementById('ai-run-btn');
+    try {
+      if (btn) btn.disabled = true;
+      if (output) output.textContent = 'Running Claude analysis...';
+      const res = await fetch('/api/analysis/ai', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'AI request failed');
+      if (output) output.textContent = data.text || 'No AI analysis returned.';
+    } catch (error) {
+      if (output) output.textContent = `AI analysis unavailable: ${error.message}`;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   /**
